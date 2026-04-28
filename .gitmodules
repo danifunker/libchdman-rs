@@ -1,0 +1,3 @@
+[submodule "deps/mame"]
+	path = deps/mame
+	url = https://github.com/mamedev/mame.git
