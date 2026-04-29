@@ -91,7 +91,7 @@ repo small and avoid licensing concerns.
 |---|---|
 | A — FFI shims | done |
 | B — enhancements.rs | done |
-| C — Integration tests | not started |
+| C — Integration tests | done |
 | D — Migration guide | not started |
 
 Update this table and the checkboxes above as work lands. Each phase ships
