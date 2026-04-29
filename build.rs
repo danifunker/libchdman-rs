@@ -223,6 +223,8 @@ fn main() {
         build.define("FLAC__NO_DLL", None);
         // utf8proc is linked statically; consumers of its headers must match.
         build.define("UTF8PROC_STATIC", None);
+        // Prevent <windows.h> from defining min/max macros that clobber std::min/std::max.
+        build.define("NOMINMAX", None);
     }
 
     build.compile("chd_shim");
