@@ -46,6 +46,11 @@ fn main() {
     let mut utf8proc_build = cc::Build::new();
     utf8proc_build.file("deps/mame/3rdparty/utf8proc/utf8proc.c");
     utf8proc_build.include("deps/mame/3rdparty/utf8proc");
+    if target_os == "windows" {
+        // Suppress __declspec(dllimport) on declarations so the static-library
+        // build doesn't hit MSVC C2491 when utf8proc.c defines the same symbols.
+        utf8proc_build.define("UTF8PROC_STATIC", None);
+    }
     utf8proc_build.compile("utf8proc_internal");
 
     // zstd
