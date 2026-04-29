@@ -1,7 +1,7 @@
-use libchdman_rs::{Chd};
+use libchdman_rs::Chd;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::{Arc, Mutex};
 use tempfile::NamedTempFile;
-use std::io::{Read, Write, Seek, SeekFrom};
 
 struct MemoryIo {
     data: Arc<Mutex<Vec<u8>>>,
@@ -35,7 +35,9 @@ impl Write for MemoryIo {
         self.pos += buf.len() as u64;
         Ok(buf.len())
     }
-    fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 impl Seek for MemoryIo {
@@ -57,18 +59,25 @@ fn test_custom_io() {
 
     // 1. Create a CHD on disk first
     {
-        let mut _chd = Chd::create(chd_path, 1024*1024, 4096, 512, [0, 0, 0, 0]).expect("Failed to create CHD");
+        let mut _chd = Chd::create(chd_path, 1024 * 1024, 4096, 512, [0, 0, 0, 0])
+            .expect("Failed to create CHD");
     }
 
     // 2. Read it into memory
     let mut file_data = Vec::new();
-    std::fs::File::open(chd_path).unwrap().read_to_end(&mut file_data).unwrap();
+    std::fs::File::open(chd_path)
+        .unwrap()
+        .read_to_end(&mut file_data)
+        .unwrap();
     let memory_data = Arc::new(Mutex::new(file_data));
 
     // 3. Open it via custom IO
-    let io = MemoryIo { data: memory_data.clone(), pos: 0 };
+    let io = MemoryIo {
+        data: memory_data.clone(),
+        pos: 0,
+    };
     let chd = Chd::open_custom(io, false, None).expect("Failed to open CHD via custom IO");
 
-    assert_eq!(chd.logical_bytes(), 1024*1024);
+    assert_eq!(chd.logical_bytes(), 1024 * 1024);
     assert_eq!(chd.hunk_bytes(), 4096);
 }

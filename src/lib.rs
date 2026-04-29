@@ -1,9 +1,9 @@
 pub mod sys;
 
-use std::ffi::{CString, CStr};
-use std::io::{Read, Write, Seek, SeekFrom};
-use std::ptr;
+use std::ffi::CString;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::raw::c_void;
+use std::ptr;
 
 pub use sys::ChdError;
 
@@ -12,6 +12,12 @@ pub type Result<T> = std::result::Result<T, ChdError>;
 pub struct Chd {
     inner: *mut sys::ChdFile,
     owned: bool,
+}
+
+impl Default for Chd {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Chd {
@@ -30,7 +36,12 @@ impl Chd {
         let parent_ptr = parent.map_or(ptr::null_mut(), |p| p.inner);
 
         let err = unsafe {
-            sys::chd_shim_open_file(chd.inner, c_filename.as_ptr(), if writeable { 1 } else { 0 }, parent_ptr)
+            sys::chd_shim_open_file(
+                chd.inner,
+                c_filename.as_ptr(),
+                if writeable { 1 } else { 0 },
+                parent_ptr,
+            )
         };
 
         if err == ChdError::NoError {
@@ -40,12 +51,25 @@ impl Chd {
         }
     }
 
-    pub fn create(filename: &str, logicalbytes: u64, hunkbytes: u32, unitbytes: u32, compression: [u32; 4]) -> Result<Self> {
+    pub fn create(
+        filename: &str,
+        logicalbytes: u64,
+        hunkbytes: u32,
+        unitbytes: u32,
+        compression: [u32; 4],
+    ) -> Result<Self> {
         let chd = Self::new();
         let c_filename = CString::new(filename).map_err(|_| ChdError::InvalidFile)?;
 
         let err = unsafe {
-            sys::chd_shim_create_file(chd.inner, c_filename.as_ptr(), logicalbytes, hunkbytes, unitbytes, compression.as_ptr())
+            sys::chd_shim_create_file(
+                chd.inner,
+                c_filename.as_ptr(),
+                logicalbytes,
+                hunkbytes,
+                unitbytes,
+                compression.as_ptr(),
+            )
         };
 
         if err == ChdError::NoError {
@@ -70,7 +94,13 @@ impl Chd {
         };
 
         let err = unsafe {
-            sys::chd_shim_open_custom(chd.inner, handle, ops, if writeable { 1 } else { 0 }, parent_ptr)
+            sys::chd_shim_open_custom(
+                chd.inner,
+                handle,
+                ops,
+                if writeable { 1 } else { 0 },
+                parent_ptr,
+            )
         };
 
         if err == ChdError::NoError {
@@ -106,28 +136,39 @@ impl Chd {
 
     pub fn sha1(&self) -> [u8; 20] {
         let mut res = [0u8; 20];
-        unsafe { sys::chd_shim_get_sha1(self.inner, res.as_mut_ptr()); }
+        unsafe {
+            sys::chd_shim_get_sha1(self.inner, res.as_mut_ptr());
+        }
         res
     }
 
     pub fn raw_sha1(&self) -> [u8; 20] {
         let mut res = [0u8; 20];
-        unsafe { sys::chd_shim_get_raw_sha1(self.inner, res.as_mut_ptr()); }
+        unsafe {
+            sys::chd_shim_get_raw_sha1(self.inner, res.as_mut_ptr());
+        }
         res
     }
 
     pub fn parent_sha1(&self) -> [u8; 20] {
         let mut res = [0u8; 20];
-        unsafe { sys::chd_shim_get_parent_sha1(self.inner, res.as_mut_ptr()); }
+        unsafe {
+            sys::chd_shim_get_parent_sha1(self.inner, res.as_mut_ptr());
+        }
         res
     }
 
     pub fn hunk_info(&self, hunknum: u32) -> Result<HunkInfo> {
         let mut compressor = 0u32;
         let mut compbytes = 0u32;
-        let err = unsafe { sys::chd_shim_hunk_info(self.inner, hunknum, &mut compressor, &mut compbytes) };
+        let err = unsafe {
+            sys::chd_shim_hunk_info(self.inner, hunknum, &mut compressor, &mut compbytes)
+        };
         if err == ChdError::NoError {
-            Ok(HunkInfo { compressor, compbytes })
+            Ok(HunkInfo {
+                compressor,
+                compbytes,
+            })
         } else {
             Err(err)
         }
@@ -137,46 +178,112 @@ impl Chd {
         if buffer.len() < self.hunk_bytes() as usize {
             return Err(ChdError::InvalidData);
         }
-        let err = unsafe { sys::chd_shim_read_hunk(self.inner, hunknum, buffer.as_mut_ptr() as *mut _) };
-        if err == ChdError::NoError { Ok(()) } else { Err(err) }
+        let err =
+            unsafe { sys::chd_shim_read_hunk(self.inner, hunknum, buffer.as_mut_ptr() as *mut _) };
+        if err == ChdError::NoError {
+            Ok(())
+        } else {
+            Err(err)
+        }
     }
 
     pub fn write_hunk(&mut self, hunknum: u32, buffer: &[u8]) -> Result<()> {
         if buffer.len() < self.hunk_bytes() as usize {
             return Err(ChdError::InvalidData);
         }
-        let err = unsafe { sys::chd_shim_write_hunk(self.inner, hunknum, buffer.as_ptr() as *const _) };
-        if err == ChdError::NoError { Ok(()) } else { Err(err) }
+        let err =
+            unsafe { sys::chd_shim_write_hunk(self.inner, hunknum, buffer.as_ptr() as *const _) };
+        if err == ChdError::NoError {
+            Ok(())
+        } else {
+            Err(err)
+        }
     }
 
     pub fn read_bytes(&self, offset: u64, buffer: &mut [u8]) -> Result<()> {
-        let err = unsafe { sys::chd_shim_read_bytes(self.inner, offset, buffer.as_mut_ptr() as *mut _, buffer.len() as u32) };
-        if err == ChdError::NoError { Ok(()) } else { Err(err) }
+        let err = unsafe {
+            sys::chd_shim_read_bytes(
+                self.inner,
+                offset,
+                buffer.as_mut_ptr() as *mut _,
+                buffer.len() as u32,
+            )
+        };
+        if err == ChdError::NoError {
+            Ok(())
+        } else {
+            Err(err)
+        }
     }
 
     pub fn write_bytes(&mut self, offset: u64, buffer: &[u8]) -> Result<()> {
-        let err = unsafe { sys::chd_shim_write_bytes(self.inner, offset, buffer.as_ptr() as *const _, buffer.len() as u32) };
-        if err == ChdError::NoError { Ok(()) } else { Err(err) }
+        let err = unsafe {
+            sys::chd_shim_write_bytes(
+                self.inner,
+                offset,
+                buffer.as_ptr() as *const _,
+                buffer.len() as u32,
+            )
+        };
+        if err == ChdError::NoError {
+            Ok(())
+        } else {
+            Err(err)
+        }
     }
 
     pub fn read_metadata(&self, tag: u32, index: u32) -> Result<Vec<u8>> {
         let mut res_len = 0u32;
-        let err = unsafe { sys::chd_shim_read_metadata(self.inner, tag, index, ptr::null_mut(), 0, &mut res_len) };
-        if err != ChdError::NoError { return Err(err); }
+        let err = unsafe {
+            sys::chd_shim_read_metadata(self.inner, tag, index, ptr::null_mut(), 0, &mut res_len)
+        };
+        if err != ChdError::NoError {
+            return Err(err);
+        }
 
         let mut buffer = vec![0u8; res_len as usize];
-        let err = unsafe { sys::chd_shim_read_metadata(self.inner, tag, index, buffer.as_mut_ptr() as *mut _, res_len, &mut res_len) };
-        if err == ChdError::NoError { Ok(buffer) } else { Err(err) }
+        let err = unsafe {
+            sys::chd_shim_read_metadata(
+                self.inner,
+                tag,
+                index,
+                buffer.as_mut_ptr() as *mut _,
+                res_len,
+                &mut res_len,
+            )
+        };
+        if err == ChdError::NoError {
+            Ok(buffer)
+        } else {
+            Err(err)
+        }
     }
 
     pub fn write_metadata(&mut self, tag: u32, index: u32, data: &[u8], flags: u8) -> Result<()> {
-        let err = unsafe { sys::chd_shim_write_metadata(self.inner, tag, index, data.as_ptr() as *const _, data.len() as u32, flags) };
-        if err == ChdError::NoError { Ok(()) } else { Err(err) }
+        let err = unsafe {
+            sys::chd_shim_write_metadata(
+                self.inner,
+                tag,
+                index,
+                data.as_ptr() as *const _,
+                data.len() as u32,
+                flags,
+            )
+        };
+        if err == ChdError::NoError {
+            Ok(())
+        } else {
+            Err(err)
+        }
     }
 
     pub fn delete_metadata(&mut self, tag: u32, index: u32) -> Result<()> {
         let err = unsafe { sys::chd_shim_delete_metadata(self.inner, tag, index) };
-        if err == ChdError::NoError { Ok(()) } else { Err(err) }
+        if err == ChdError::NoError {
+            Ok(())
+        } else {
+            Err(err)
+        }
     }
 
     pub fn verify(&self) -> Result<()> {
@@ -189,13 +296,16 @@ impl Chd {
             rawsha.append(&buffer[..to_read as usize]);
         }
         let computed = rawsha.finish();
-        let expected = if self.version() <= 3 { self.sha1() } else { self.raw_sha1() };
+        let expected = if self.version() <= 3 {
+            self.sha1()
+        } else {
+            self.raw_sha1()
+        };
         if computed != expected {
             return Err(ChdError::DecompressionError);
         }
         Ok(())
     }
-
 }
 
 pub struct HunkInfo {
@@ -226,37 +336,62 @@ impl<T: Read + Write + Seek> ChdIo for T {
     }
 }
 
-extern "C" fn chd_io_read<T: ChdIo>(handle: sys::ChdRustIoHandle, offset: u64, buffer: *mut c_void, length: u32, actual: *mut u32) -> libc::c_int {
+extern "C" fn chd_io_read<T: ChdIo>(
+    handle: sys::ChdRustIoHandle,
+    offset: u64,
+    buffer: *mut c_void,
+    length: u32,
+    actual: *mut u32,
+) -> libc::c_int {
     let io = unsafe { &mut *(handle as *mut T) };
-    if io.seek(SeekFrom::Start(offset)).is_err() { return -1; }
+    if io.seek(SeekFrom::Start(offset)).is_err() {
+        return -1;
+    }
     let buf = unsafe { std::slice::from_raw_parts_mut(buffer as *mut u8, length as usize) };
     match io.read(buf) {
         Ok(n) => {
-            unsafe { *actual = n as u32; }
+            unsafe {
+                *actual = n as u32;
+            }
             0
         }
         Err(_) => -1,
     }
 }
 
-extern "C" fn chd_io_write<T: ChdIo>(handle: sys::ChdRustIoHandle, offset: u64, buffer: *const c_void, length: u32, actual: *mut u32) -> libc::c_int {
+extern "C" fn chd_io_write<T: ChdIo>(
+    handle: sys::ChdRustIoHandle,
+    offset: u64,
+    buffer: *const c_void,
+    length: u32,
+    actual: *mut u32,
+) -> libc::c_int {
     let io = unsafe { &mut *(handle as *mut T) };
-    if io.seek(SeekFrom::Start(offset)).is_err() { return -1; }
+    if io.seek(SeekFrom::Start(offset)).is_err() {
+        return -1;
+    }
     let buf = unsafe { std::slice::from_raw_parts(buffer as *const u8, length as usize) };
     match io.write(buf) {
         Ok(n) => {
-            unsafe { *actual = n as u32; }
+            unsafe {
+                *actual = n as u32;
+            }
             0
         }
         Err(_) => -1,
     }
 }
 
-extern "C" fn chd_io_length<T: ChdIo>(handle: sys::ChdRustIoHandle, result: *mut u64) -> libc::c_int {
+extern "C" fn chd_io_length<T: ChdIo>(
+    handle: sys::ChdRustIoHandle,
+    result: *mut u64,
+) -> libc::c_int {
     let io = unsafe { &mut *(handle as *mut T) };
     match io.length() {
         Ok(len) => {
-            unsafe { *result = len; }
+            unsafe {
+                *result = len;
+            }
             0
         }
         Err(_) => -1,
@@ -289,24 +424,52 @@ impl ChdCompressor {
         }
     }
 
-    pub fn create_file(&mut self, filename: &str, logicalbytes: u64, hunkbytes: u32, unitbytes: u32, compression: [u32; 4]) -> Result<()> {
+    pub fn create_file(
+        &mut self,
+        filename: &str,
+        logicalbytes: u64,
+        hunkbytes: u32,
+        unitbytes: u32,
+        compression: [u32; 4],
+    ) -> Result<()> {
         let c_filename = CString::new(filename).map_err(|_| ChdError::InvalidFile)?;
         let err = unsafe {
-            sys::chd_shim_compressor_create_file(self.inner, c_filename.as_ptr(), logicalbytes, hunkbytes, unitbytes, compression.as_ptr())
+            sys::chd_shim_compressor_create_file(
+                self.inner,
+                c_filename.as_ptr(),
+                logicalbytes,
+                hunkbytes,
+                unitbytes,
+                compression.as_ptr(),
+            )
         };
-        if err == ChdError::NoError { Ok(()) } else { Err(err) }
+        if err == ChdError::NoError {
+            Ok(())
+        } else {
+            Err(err)
+        }
     }
 
     pub fn compress_begin(&mut self) {
-        unsafe { sys::chd_shim_compressor_begin(self.inner); }
+        unsafe {
+            sys::chd_shim_compressor_begin(self.inner);
+        }
     }
 
     pub fn compress_continue(&mut self) -> Result<CompressionProgress> {
         let mut progress = 0.0;
         let mut ratio = 0.0;
-        let err = unsafe { sys::chd_shim_compressor_continue(self.inner, &mut progress, &mut ratio) };
-        if err == ChdError::NoError || err == ChdError::WalkingParent || err == ChdError::Compressing {
-            Ok(CompressionProgress { err, progress, ratio })
+        let err =
+            unsafe { sys::chd_shim_compressor_continue(self.inner, &mut progress, &mut ratio) };
+        if err == ChdError::NoError
+            || err == ChdError::WalkingParent
+            || err == ChdError::Compressing
+        {
+            Ok(CompressionProgress {
+                err,
+                progress,
+                ratio,
+            })
         } else {
             Err(err)
         }
@@ -319,7 +482,12 @@ pub struct CompressionProgress {
     pub ratio: f64,
 }
 
-extern "C" fn chd_compressor_read_data<T: ChdDataHandler>(handle: sys::ChdRustCompressorHandle, dest: *mut c_void, offset: u64, length: u32) -> u32 {
+extern "C" fn chd_compressor_read_data<T: ChdDataHandler>(
+    handle: sys::ChdRustCompressorHandle,
+    dest: *mut c_void,
+    offset: u64,
+    length: u32,
+) -> u32 {
     let handler = unsafe { &mut *(handle as *mut T) };
     let buf = unsafe { std::slice::from_raw_parts_mut(dest as *mut u8, length as usize) };
     handler.read_data(buf, offset)
@@ -327,7 +495,9 @@ extern "C" fn chd_compressor_read_data<T: ChdDataHandler>(handle: sys::ChdRustCo
 
 impl Drop for ChdCompressor {
     fn drop(&mut self) {
-        unsafe { sys::chd_shim_compressor_free(self.inner); }
+        unsafe {
+            sys::chd_shim_compressor_free(self.inner);
+        }
     }
 }
 
@@ -336,20 +506,30 @@ struct Sha1Creator {
 }
 impl Sha1Creator {
     fn new() -> Self {
-        unsafe { Self { inner: sys::chd_shim_sha1_alloc() } }
+        unsafe {
+            Self {
+                inner: sys::chd_shim_sha1_alloc(),
+            }
+        }
     }
     fn append(&mut self, data: &[u8]) {
-        unsafe { sys::chd_shim_sha1_append(self.inner, data.as_ptr() as *const _, data.len() as u32); }
+        unsafe {
+            sys::chd_shim_sha1_append(self.inner, data.as_ptr() as *const _, data.len() as u32);
+        }
     }
     fn finish(&self) -> [u8; 20] {
         let mut res = [0u8; 20];
-        unsafe { sys::chd_shim_sha1_finish(self.inner, res.as_mut_ptr()); }
+        unsafe {
+            sys::chd_shim_sha1_finish(self.inner, res.as_mut_ptr());
+        }
         res
     }
 }
 impl Drop for Sha1Creator {
     fn drop(&mut self) {
-        unsafe { sys::chd_shim_sha1_free(self.inner); }
+        unsafe {
+            sys::chd_shim_sha1_free(self.inner);
+        }
     }
 }
 
