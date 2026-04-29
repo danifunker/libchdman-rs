@@ -270,24 +270,4 @@ int osd_getpid() noexcept {
 void osd_break_into_debugger(const char* message) {}
 std::pair<std::error_condition, unsigned> osd_get_cache_line_size() noexcept { return {std::error_condition(), 64}; }
 
-int osd_uchar_from_osdchar(char32_t *uchar, const char *osdchar, size_t count)
-{
-	if (!*osdchar)
-	{
-		*uchar = char32_t(0);
-		return 1;
-	}
-
-	wchar_t wch;
-	size_t res = mbstowcs(&wch, osdchar, 1);
-	if (res != size_t(-1))
-	{
-		*uchar = wch;
-		return (int)res;
-	}
-	else
-	{
-		*uchar = 0;
-		return -1;
-	}
-}
+// osd_uchar_from_osdchar is provided by deps/mame/src/osd/strconv.cpp on all platforms.

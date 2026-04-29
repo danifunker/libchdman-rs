@@ -199,10 +199,9 @@ fn main() {
         build.file(file);
     }
 
-    if target_os == "windows" {
-        // Win32 string conversion used by unicode.cpp on Windows.
-        build.file("deps/mame/src/osd/strconv.cpp");
-    }
+    // strconv.cpp provides osd::text::to_wstring/from_wstring (Windows-only) and
+    // osd_uchar_from_osdchar (both branches), so compile on every platform.
+    build.file("deps/mame/src/osd/strconv.cpp");
 
     // Macros — mirrors MAME's scripts/genie.lua and scripts/src/osd/windows_cfg.lua
     #[cfg(target_endian = "little")]
