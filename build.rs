@@ -151,6 +151,8 @@ fn main() {
     if target_os == "windows" {
         // Building FLAC statically: prevent headers from marking APIs as dllimport.
         flac_build.define("FLAC__NO_DLL", None);
+        // FLAC's compat layer rewrites fopen to fopen_utf8 on Windows; supply it.
+        flac_build.file("deps/mame/3rdparty/flac/src/share/win_utf8_io/win_utf8_io.c");
     }
     flac_build.compile("flac_internal");
 
@@ -188,12 +190,18 @@ fn main() {
         "deps/mame/src/lib/util/palette.cpp",
         "deps/mame/src/lib/util/corefile.cpp",
         "deps/mame/src/lib/util/vecstream.cpp",
+        "deps/mame/src/lib/util/path.cpp",
         "sys/minimal_osd.cpp",
         "sys/chd_shim.cpp",
     ];
 
     for file in cpp_files.iter() {
         build.file(file);
+    }
+
+    if target_os == "windows" {
+        // Win32 string conversion used by unicode.cpp on Windows.
+        build.file("deps/mame/src/osd/strconv.cpp");
     }
 
     // Macros
@@ -213,6 +221,8 @@ fn main() {
         build.define("OSD_WINDOWS", None);
         // FLAC is linked statically; consumers of its headers must match.
         build.define("FLAC__NO_DLL", None);
+        // utf8proc is linked statically; consumers of its headers must match.
+        build.define("UTF8PROC_STATIC", None);
     }
 
     build.compile("chd_shim");
