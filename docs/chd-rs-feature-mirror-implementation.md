@@ -92,7 +92,7 @@ repo small and avoid licensing concerns.
 | A — FFI shims | done |
 | B — enhancements.rs | done |
 | C — Integration tests | done |
-| D — Migration guide | not started |
+| D — Migration guide | done (`docs/migration-from-chd-rs.md`) |
 
 Update this table and the checkboxes above as work lands. Each phase ships
 as its own commit on `main`.
