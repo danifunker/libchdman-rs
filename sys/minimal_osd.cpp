@@ -16,13 +16,6 @@
 #include <windows.h>
 #include <direct.h>
 #include <io.h>
-#define open _open
-#define read _read
-#define write _write
-#define close _close
-#define fstat _fstat64
-#define stat _stat64
-#define lseek _lseeki64
 #else
 #include <unistd.h>
 #include <fcntl.h>
