@@ -148,6 +148,10 @@ fn main() {
     flac_build.define("HAVE_STDLIB_H", Some("1"));
     flac_build.define("HAVE_STRING_H", Some("1"));
     flac_build.define("SIZE_T_MAX", Some("UINT64_MAX"));
+    if target_os == "windows" {
+        // Building FLAC statically: prevent headers from marking APIs as dllimport.
+        flac_build.define("FLAC__NO_DLL", None);
+    }
     flac_build.compile("flac_internal");
 
     let mut build = cc::Build::new();
@@ -207,6 +211,8 @@ fn main() {
         build.define("SDLMAME_DARWIN", None);
     } else if target_os == "windows" {
         build.define("OSD_WINDOWS", None);
+        // FLAC is linked statically; consumers of its headers must match.
+        build.define("FLAC__NO_DLL", None);
     }
 
     build.compile("chd_shim");
