@@ -230,7 +230,10 @@ fn main() {
         build.define("WIN32_LEAN_AND_MEAN", None);
         build.define("NOMINMAX", None);
         build.define("_WIN32_WINNT", Some("0x0602"));
-        build.define("NTDDI_VERSION", Some("0x06000000"));
+        // MAME's genie.lua pairs _WIN32_WINNT=0x0602 with NTDDI_VERSION=0x06000000,
+        // which MinGW tolerates but the MSVC SDK rejects with #error. Use the
+        // matching Win8 NTDDI value so both compilers accept it.
+        build.define("NTDDI_VERSION", Some("0x06020000"));
         // From scripts/genie.lua: 3rdparty static linkage and MSVC CRT deprecation silencing
         build.define("FLAC__NO_DLL", None);
         build.define("UTF8PROC_STATIC", None); // not in MAME; needed because we build utf8proc as a separate static lib via cc
