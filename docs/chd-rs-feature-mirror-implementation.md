@@ -89,8 +89,8 @@ repo small and avoid licensing concerns.
 
 | Phase | Status |
 |---|---|
-| A — FFI shims | not started |
-| B — enhancements.rs | not started |
+| A — FFI shims | done |
+| B — enhancements.rs | done |
 | C — Integration tests | not started |
 | D — Migration guide | not started |
 

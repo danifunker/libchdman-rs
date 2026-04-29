@@ -1,4 +1,9 @@
+pub mod enhancements;
 pub mod sys;
+
+pub use enhancements::{
+    cdrom, metadata, ChdReader, HunkIter, HunkReader, MetadataEntry, MetadataIter, Version,
+};
 
 use std::ffi::CString;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -533,7 +538,7 @@ impl Drop for Sha1Creator {
     }
 }
 
-pub fn make_tag(a: u8, b: u8, c: u8, d: u8) -> u32 {
+pub const fn make_tag(a: u8, b: u8, c: u8, d: u8) -> u32 {
     ((a as u32) << 24) | ((b as u32) << 16) | ((c as u32) << 8) | (d as u32)
 }
 
