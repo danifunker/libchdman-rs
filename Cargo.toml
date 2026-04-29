@@ -1,0 +1,15 @@
+[package]
+name = "libchdman-rs"
+version = "0.287.0"
+edition = "2021"
+authors = ["Jules"]
+description = "Rust wrapper for MAME CHD core"
+
+[dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[build-dependencies]
+cc = { version = "1.0", features = ["parallel"] }
