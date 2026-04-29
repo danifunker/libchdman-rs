@@ -204,11 +204,16 @@ fn main() {
         build.file("deps/mame/src/osd/strconv.cpp");
     }
 
-    // Macros
+    // Macros — mirrors MAME's scripts/genie.lua and scripts/src/osd/windows_cfg.lua
     #[cfg(target_endian = "little")]
     build.define("LSB_FIRST", None);
 
-    build.define("CRLF", Some("2"));
+    // CRLF: 1=CR, 2=LF, 3=CRLF. MAME uses 3 on Windows, 2 elsewhere.
+    if target_os == "windows" {
+        build.define("CRLF", Some("3"));
+    } else {
+        build.define("CRLF", Some("2"));
+    }
 
     if target_os == "linux" {
         build.define("SDLMAME_UNIX", None);
@@ -218,13 +223,20 @@ fn main() {
         build.define("SDLMAME_MACOSX", None);
         build.define("SDLMAME_DARWIN", None);
     } else if target_os == "windows" {
+        // From scripts/src/osd/windows_cfg.lua
         build.define("OSD_WINDOWS", None);
-        // FLAC is linked statically; consumers of its headers must match.
-        build.define("FLAC__NO_DLL", None);
-        // utf8proc is linked statically; consumers of its headers must match.
-        build.define("UTF8PROC_STATIC", None);
-        // Prevent <windows.h> from defining min/max macros that clobber std::min/std::max.
+        build.define("UNICODE", None);
+        build.define("_UNICODE", None);
+        build.define("WIN32_LEAN_AND_MEAN", None);
         build.define("NOMINMAX", None);
+        build.define("_WIN32_WINNT", Some("0x0602"));
+        build.define("NTDDI_VERSION", Some("0x06000000"));
+        // From scripts/genie.lua: 3rdparty static linkage and MSVC CRT deprecation silencing
+        build.define("FLAC__NO_DLL", None);
+        build.define("UTF8PROC_STATIC", None); // not in MAME; needed because we build utf8proc as a separate static lib via cc
+        build.define("_CRT_NONSTDC_NO_DEPRECATE", None);
+        build.define("_CRT_SECURE_NO_DEPRECATE", None);
+        build.define("_CRT_STDIO_LEGACY_WIDE_SPECIFIERS", None);
     }
 
     build.compile("chd_shim");
