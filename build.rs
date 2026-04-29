@@ -2,6 +2,16 @@ fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
 
+    // Silences MAME / 3rdparty C/C++ diagnostics across GCC/Clang/MSVC.
+    // We don't own this code; its warnings are noise we can't act on.
+    // (Note: a handful of macOS-only ranlib "no symbols" warnings can still
+    // appear for platform-gated sources that compile to empty objects on
+    // macOS. These come from the linker stage; cc-rs does not expose a
+    // ranlib-flag hook to silence them.)
+    let quiet = |b: &mut cc::Build| {
+        b.warnings(false).extra_warnings(false);
+    };
+
     // LZMA
     let lzma_files = [
         "deps/mame/3rdparty/lzma/C/LzmaDec.c",
@@ -20,6 +30,7 @@ fn main() {
     }
     lzma_build.include("deps/mame/3rdparty/lzma/C");
     lzma_build.define("Z7_ST", None);
+    quiet(&mut lzma_build);
     lzma_build.compile("lzma_internal");
 
     // Zlib
@@ -40,6 +51,7 @@ fn main() {
         zlib_build.file(file);
     }
     zlib_build.include("deps/mame/3rdparty/zlib");
+    quiet(&mut zlib_build);
     zlib_build.compile("zlib_internal");
 
     // utf8proc
@@ -51,6 +63,7 @@ fn main() {
         // build doesn't hit MSVC C2491 when utf8proc.c defines the same symbols.
         utf8proc_build.define("UTF8PROC_STATIC", None);
     }
+    quiet(&mut utf8proc_build);
     utf8proc_build.compile("utf8proc_internal");
 
     // zstd
@@ -88,6 +101,7 @@ fn main() {
     zstd_build.include("deps/mame/3rdparty/zstd/lib");
     zstd_build.include("deps/mame/3rdparty/zstd/lib/common");
     zstd_build.define("ZSTD_DISABLE_ASM", None);
+    quiet(&mut zstd_build);
     zstd_build.compile("zstd_internal");
 
     // flac
@@ -154,6 +168,7 @@ fn main() {
         // FLAC's compat layer rewrites fopen to fopen_utf8 on Windows; supply it.
         flac_build.file("deps/mame/3rdparty/flac/src/share/win_utf8_io/win_utf8_io.c");
     }
+    quiet(&mut flac_build);
     flac_build.compile("flac_internal");
 
     let mut build = cc::Build::new();
@@ -241,6 +256,7 @@ fn main() {
         build.define("_CRT_STDIO_LEGACY_WIDE_SPECIFIERS", None);
     }
 
+    quiet(&mut build);
     build.compile("chd_shim");
 
     println!("cargo:rerun-if-changed=sys/chd_shim.h");
