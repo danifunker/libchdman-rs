@@ -244,6 +244,55 @@ const char* chd_shim_codec_name(uint32_t type) {
     return chd_codec_list::codec_name((chd_codec_type)type);
 }
 
+int chd_shim_compressed(chd_file_t* chd) {
+    return ((chd_file*)chd)->compressed() ? 1 : 0;
+}
+
+uint32_t chd_shim_compression(chd_file_t* chd, int index) {
+    if (index < 0 || index >= 4) return 0;
+    return (uint32_t)((chd_file*)chd)->compression(index);
+}
+
+int chd_shim_has_parent(chd_file_t* chd) {
+    return ((chd_file*)chd)->parent() != nullptr ? 1 : 0;
+}
+
+int chd_shim_check_is_hd(chd_file_t* chd) {
+    return ((chd_file*)chd)->check_is_hd() ? 0 : 1;
+}
+int chd_shim_check_is_cd(chd_file_t* chd) {
+    return ((chd_file*)chd)->check_is_cd() ? 0 : 1;
+}
+int chd_shim_check_is_gd(chd_file_t* chd) {
+    return ((chd_file*)chd)->check_is_gd() ? 0 : 1;
+}
+int chd_shim_check_is_dvd(chd_file_t* chd) {
+    return ((chd_file*)chd)->check_is_dvd() ? 0 : 1;
+}
+int chd_shim_check_is_av(chd_file_t* chd) {
+    return ((chd_file*)chd)->check_is_av() ? 0 : 1;
+}
+
+chd_error_t chd_shim_metadata_enum(chd_file_t* chd, uint32_t index,
+                                    uint32_t* out_tag, uint8_t* out_flags,
+                                    void* buffer, uint32_t buffer_len,
+                                    uint32_t* result_len) {
+    std::vector<uint8_t> output;
+    chd_metadata_tag tag = 0;
+    uint8_t flags = 0;
+    auto err = ((chd_file*)chd)->read_metadata(CHDMETATAG_WILDCARD, index, output, tag, flags);
+    if (err) return to_chd_error(err);
+    if (out_tag) *out_tag = (uint32_t)tag;
+    if (out_flags) *out_flags = flags;
+    if (result_len) *result_len = (uint32_t)output.size();
+    if (buffer && buffer_len > 0) {
+        uint32_t to_copy = (uint32_t)output.size();
+        if (to_copy > buffer_len) to_copy = buffer_len;
+        memcpy(buffer, output.data(), to_copy);
+    }
+    return 0;
+}
+
 }
 
 extern "C" {

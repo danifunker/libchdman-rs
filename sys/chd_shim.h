@@ -73,6 +73,25 @@ chd_error_t chd_shim_compressor_continue(chd_file_compressor_t* compressor, doub
 int chd_shim_codec_exists(uint32_t type);
 const char* chd_shim_codec_name(uint32_t type);
 
+// Header introspection (chd-rs feature parity)
+int chd_shim_compressed(chd_file_t* chd);
+uint32_t chd_shim_compression(chd_file_t* chd, int index);
+int chd_shim_has_parent(chd_file_t* chd);
+int chd_shim_check_is_hd(chd_file_t* chd);
+int chd_shim_check_is_cd(chd_file_t* chd);
+int chd_shim_check_is_gd(chd_file_t* chd);
+int chd_shim_check_is_dvd(chd_file_t* chd);
+int chd_shim_check_is_av(chd_file_t* chd);
+
+// Metadata enumeration: returns the entry at ordinal `index` across all tags.
+// On success fills *out_tag, *out_flags, copies up to buffer_len bytes into
+// buffer, and writes the full size into *result_len. Pass buffer=NULL,
+// buffer_len=0 to query size only.
+chd_error_t chd_shim_metadata_enum(chd_file_t* chd, uint32_t index,
+                                    uint32_t* out_tag, uint8_t* out_flags,
+                                    void* buffer, uint32_t buffer_len,
+                                    uint32_t* result_len);
+
 #ifdef __cplusplus
 }
 #endif

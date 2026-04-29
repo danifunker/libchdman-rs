@@ -173,6 +173,25 @@ extern "C" {
     pub fn chd_shim_codec_exists(codec_type: u32) -> c_int;
     pub fn chd_shim_codec_name(codec_type: u32) -> *const c_char;
 
+    pub fn chd_shim_compressed(chd: *mut ChdFile) -> c_int;
+    pub fn chd_shim_compression(chd: *mut ChdFile, index: c_int) -> u32;
+    pub fn chd_shim_has_parent(chd: *mut ChdFile) -> c_int;
+    pub fn chd_shim_check_is_hd(chd: *mut ChdFile) -> c_int;
+    pub fn chd_shim_check_is_cd(chd: *mut ChdFile) -> c_int;
+    pub fn chd_shim_check_is_gd(chd: *mut ChdFile) -> c_int;
+    pub fn chd_shim_check_is_dvd(chd: *mut ChdFile) -> c_int;
+    pub fn chd_shim_check_is_av(chd: *mut ChdFile) -> c_int;
+
+    pub fn chd_shim_metadata_enum(
+        chd: *mut ChdFile,
+        index: u32,
+        out_tag: *mut u32,
+        out_flags: *mut u8,
+        buffer: *mut c_void,
+        buffer_len: u32,
+        result_len: *mut u32,
+    ) -> ChdError;
+
 }
 
 pub enum ChdSha1 {}
