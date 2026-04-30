@@ -1,9 +1,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use libchdman_rs::dvd::{self, DvdCreateOptions, DVD_SECTOR_SIZE};
-use libchdman_rs::{
-    Chd, ChdError, CHD_CODEC_LZMA, CHD_CODEC_NONE, CHD_CODEC_ZLIB, CHD_CODEC_ZSTD,
-};
+use libchdman_rs::{Chd, ChdError, CHD_CODEC_LZMA, CHD_CODEC_NONE, CHD_CODEC_ZLIB, CHD_CODEC_ZSTD};
 
 mod common;
 

@@ -310,13 +310,13 @@ impl Chd {
     /// CHDs it is zero. `metadata_tags` lists every metadata tag in the
     /// order MAME stores them, paired with its index within that tag.
     pub fn info(&self) -> Result<ChdInfo> {
-        let codecs = [0i32, 1, 2, 3]
-            .map(|i| unsafe { sys::chd_shim_compression(self.inner, i) });
+        let codecs = [0i32, 1, 2, 3].map(|i| unsafe { sys::chd_shim_compression(self.inner, i) });
 
         // Walk metadata once. Counts CD/GD track tags and collects every
         // (tag, index) pair for downstream consumers.
         let mut metadata_tags: Vec<(u32, u32)> = Vec::new();
-        let mut per_tag_index: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+        let mut per_tag_index: std::collections::HashMap<u32, u32> =
+            std::collections::HashMap::new();
         let mut track_count: u32 = 0;
         let mut idx: u32 = 0;
         loop {

@@ -191,10 +191,7 @@ pub fn create_from_cue(
     }
     let mut compressor = ChdCompressor::from_raw(raw_compressor, logical_bytes);
 
-    let path_str = out_path
-        .to_str()
-        .ok_or(ChdError::InvalidFile)?
-        .to_string();
+    let path_str = out_path.to_str().ok_or(ChdError::InvalidFile)?.to_string();
     compressor.create_file(
         &path_str,
         logical_bytes,
@@ -203,9 +200,7 @@ pub fn create_from_cue(
         opts.codecs,
     )?;
 
-    let err = unsafe {
-        sys::chd_shim_cd_write_metadata(compressor.as_chd_file_ptr(), toc.inner)
-    };
+    let err = unsafe { sys::chd_shim_cd_write_metadata(compressor.as_chd_file_ptr(), toc.inner) };
     if err != ChdError::NoError {
         return Err(err);
     }
@@ -287,11 +282,7 @@ pub fn extract_to_cue(
     bin_path: &Path,
     progress: &mut dyn FnMut(u64),
 ) -> Result<()> {
-    let chd = Chd::open(
-        chd_path.to_str().ok_or(ChdError::InvalidFile)?,
-        false,
-        None,
-    )?;
+    let chd = Chd::open(chd_path.to_str().ok_or(ChdError::InvalidFile)?, false, None)?;
     let raw_chd = chd.raw_ptr();
 
     let cdrom = unsafe { sys::chd_shim_cdrom_open(raw_chd) };
@@ -322,8 +313,7 @@ pub fn extract_to_cue(
         .file_name()
         .and_then(|s| s.to_str())
         .ok_or(ChdError::InvalidFile)?;
-    writeln!(cue_writer, "FILE \"{}\" BINARY", bin_filename)
-        .map_err(|_| ChdError::InvalidFile)?;
+    writeln!(cue_writer, "FILE \"{}\" BINARY", bin_filename).map_err(|_| ChdError::InvalidFile)?;
 
     let mut sector = vec![0u8; RAW_SECTOR_SIZE];
     let mut written: u64 = 0;
@@ -429,11 +419,7 @@ pub fn extract_to_iso(
     iso_path: &Path,
     progress: &mut dyn FnMut(u64),
 ) -> Result<()> {
-    let chd = Chd::open(
-        chd_path.to_str().ok_or(ChdError::InvalidFile)?,
-        false,
-        None,
-    )?;
+    let chd = Chd::open(chd_path.to_str().ok_or(ChdError::InvalidFile)?, false, None)?;
     let tracks = list_tracks(&chd)?;
     if tracks.len() != 1 {
         return Err(ChdError::UnsupportedFormat);

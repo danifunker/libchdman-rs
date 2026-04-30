@@ -9,15 +9,13 @@
 use std::path::Path;
 
 use crate::streaming::run_compression;
-use crate::{
-    sys, Chd, ChdCompressor, ChdDataHandler, ChdError, CompressionProgress, Result,
-};
+use crate::{sys, Chd, ChdCompressor, ChdDataHandler, ChdError, CompressionProgress, Result};
 
 /// MAME's `CHDMETAINDEX_APPEND` (chd.h:206) — pass as the index when
 /// writing metadata to mean "append, don't overwrite".
 const CHDMETAINDEX_APPEND: u32 = !0u32;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CopyOptions {
     /// New hunk size in bytes. `None` keeps the source's hunk size.
     /// Must be a multiple of the source's unit size; chdman additionally
@@ -26,15 +24,6 @@ pub struct CopyOptions {
     pub hunk_size: Option<u32>,
     /// New codec slots. Use `[0; 4]` for uncompressed.
     pub codecs: [u32; 4],
-}
-
-impl Default for CopyOptions {
-    fn default() -> Self {
-        Self {
-            hunk_size: None,
-            codecs: [0; 4],
-        }
-    }
 }
 
 /// `ChdDataHandler` that pulls logical bytes from an open CHD.
@@ -73,20 +62,15 @@ pub fn copy(
     progress: &mut dyn FnMut(CompressionProgress),
     cancel: &dyn Fn() -> bool,
 ) -> Result<()> {
-    let source_chd = Chd::open(
-        source.to_str().ok_or(ChdError::InvalidFile)?,
-        false,
-        None,
-    )?;
+    let source_chd = Chd::open(source.to_str().ok_or(ChdError::InvalidFile)?, false, None)?;
     let logical = source_chd.logical_bytes();
     let unit = source_chd.unit_bytes();
     let hunk = opts.hunk_size.unwrap_or(source_chd.hunk_bytes());
 
     // Snapshot metadata up front so we don't have to share `source_chd`
     // between the metadata walk and the handler.
-    let metadata: Vec<crate::MetadataEntry> = source_chd
-        .metadata_iter()
-        .collect::<Result<Vec<_>>>()?;
+    let metadata: Vec<crate::MetadataEntry> =
+        source_chd.metadata_iter().collect::<Result<Vec<_>>>()?;
 
     // Move the source into the handler. The handler lives inside the
     // compressor; both are dropped at run_compression's end, after

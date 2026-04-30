@@ -19,9 +19,7 @@ use std::fs;
 use std::io::Read;
 use std::path::Path;
 
-use crate::{
-    ChdCompressor, ChdDataHandler, ChdError, CompressStep, CompressionProgress, Result,
-};
+use crate::{ChdCompressor, ChdDataHandler, ChdError, CompressStep, CompressionProgress, Result};
 
 /// Adapts a `Read` to the [`ChdDataHandler`] pull model the C++
 /// compressor expects.

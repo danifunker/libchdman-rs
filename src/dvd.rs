@@ -11,8 +11,8 @@ use std::path::Path;
 use crate::enhancements::metadata::tags::DVD_METADATA_TAG;
 use crate::streaming::{run_compression, StreamingSource};
 use crate::{
-    sys, Chd, ChdCompressor, ChdError, CompressionProgress, Result, CHD_CODEC_FLAC,
-    CHD_CODEC_HUFF, CHD_CODEC_LZMA, CHD_CODEC_ZLIB,
+    sys, Chd, ChdCompressor, ChdError, CompressionProgress, Result, CHD_CODEC_FLAC, CHD_CODEC_HUFF,
+    CHD_CODEC_LZMA, CHD_CODEC_ZLIB,
 };
 
 /// DVD logical sector size in bytes.
@@ -51,10 +51,10 @@ impl Default for DvdCreateOptions {
 }
 
 fn validate(opts: &DvdCreateOptions) -> Result<()> {
-    if opts.hunk_size == 0 || opts.hunk_size % DVD_SECTOR_SIZE != 0 {
+    if opts.hunk_size == 0 || !opts.hunk_size.is_multiple_of(DVD_SECTOR_SIZE) {
         return Err(ChdError::InvalidData);
     }
-    if opts.logical_size == 0 || opts.logical_size % u64::from(DVD_SECTOR_SIZE) != 0 {
+    if opts.logical_size == 0 || !opts.logical_size.is_multiple_of(u64::from(DVD_SECTOR_SIZE)) {
         return Err(ChdError::InvalidData);
     }
     Ok(())
@@ -75,10 +75,7 @@ pub fn create_from_reader<R: Read>(
     validate(&opts)?;
     let source = StreamingSource::new(reader, opts.logical_size);
     let mut compressor = ChdCompressor::new(source);
-    let path_str = out_path
-        .to_str()
-        .ok_or(ChdError::InvalidFile)?
-        .to_string();
+    let path_str = out_path.to_str().ok_or(ChdError::InvalidFile)?.to_string();
     compressor.create_file(
         &path_str,
         opts.logical_size,
@@ -143,11 +140,7 @@ pub fn extract_to_writer<W: Write>(
     mut writer: W,
     progress: &mut dyn FnMut(u64),
 ) -> Result<()> {
-    let chd = Chd::open(
-        chd_path.to_str().ok_or(ChdError::InvalidFile)?,
-        false,
-        None,
-    )?;
+    let chd = Chd::open(chd_path.to_str().ok_or(ChdError::InvalidFile)?, false, None)?;
     let info = chd.info()?;
     if !info.is_dvd {
         return Err(ChdError::UnsupportedFormat);

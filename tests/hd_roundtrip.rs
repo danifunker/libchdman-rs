@@ -7,17 +7,13 @@ use libchdman_rs::enhancements::metadata::tags::{
 use libchdman_rs::hd::{
     self, compute_chs, format_gddd, read_geometry, HdCreateOptions, HdGeometry,
 };
-use libchdman_rs::{
-    Chd, ChdError, CHD_CODEC_LZMA, CHD_CODEC_NONE, CHD_CODEC_ZLIB, CHD_CODEC_ZSTD,
-};
+use libchdman_rs::{Chd, ChdError, CHD_CODEC_LZMA, CHD_CODEC_NONE, CHD_CODEC_ZLIB, CHD_CODEC_ZSTD};
 
 mod common;
 
 /// Deterministic but compressible-ish payload: byte = (i / 7) ^ (i & 0xff).
 fn synth(len: usize) -> Vec<u8> {
-    (0..len)
-        .map(|i| ((i / 7) ^ i) as u8)
-        .collect()
+    (0..len).map(|i| ((i / 7) ^ i) as u8).collect()
 }
 
 fn tmpdir() -> tempfile::TempDir {
@@ -156,13 +152,9 @@ fn writes_ident_blob() {
         ident: Some(ident.clone()),
         ..Default::default()
     };
-    hd::create_from_reader(
-        Cursor::new(payload),
-        &chd_path,
-        opts,
-        &mut |_| {},
-        &|| false,
-    )
+    hd::create_from_reader(Cursor::new(payload), &chd_path, opts, &mut |_| {}, &|| {
+        false
+    })
     .unwrap();
 
     let chd = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
@@ -185,16 +177,11 @@ fn cancellation_deletes_partial_file() {
         ..Default::default()
     };
 
-    let result = hd::create_from_reader(
-        Cursor::new(payload),
-        &chd_path,
-        opts,
-        &mut |_| {},
-        &|| {
+    let result =
+        hd::create_from_reader(Cursor::new(payload), &chd_path, opts, &mut |_| {}, &|| {
             // Trip cancel after the second progress poll.
             calls.fetch_add(1, Ordering::SeqCst) > 0
-        },
-    );
+        });
 
     assert!(matches!(result, Err(ChdError::Cancelled)));
     assert!(

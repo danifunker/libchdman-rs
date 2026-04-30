@@ -194,12 +194,18 @@ fn extract_to_cue_roundtrips_two_track_chd() {
     expected.extend_from_slice(&data_orig);
     expected.extend_from_slice(&audio_orig);
     assert_eq!(combined.len(), expected.len(), "bin size");
-    assert_eq!(combined, expected, "extracted .bin must match original BIN concatenation");
+    assert_eq!(
+        combined, expected,
+        "extracted .bin must match original BIN concatenation"
+    );
 
     // CUE shape: one FILE entry, two TRACK entries with INDEX 01 at
     // their offsets, TRACK 02 starts at MSF for 43 frames.
     let cue_text = std::fs::read_to_string(&cue_out).unwrap();
-    assert!(cue_text.starts_with("FILE \"out.bin\" BINARY\n"), "cue: {cue_text}");
+    assert!(
+        cue_text.starts_with("FILE \"out.bin\" BINARY\n"),
+        "cue: {cue_text}"
+    );
     assert!(cue_text.contains("TRACK 01 MODE1/2352"));
     assert!(cue_text.contains("TRACK 02 AUDIO"));
     assert!(cue_text.contains("INDEX 01 00:00:00"));

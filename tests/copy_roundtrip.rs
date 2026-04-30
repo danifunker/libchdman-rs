@@ -5,9 +5,7 @@ use libchdman_rs::enhancements::metadata::tags::{
     HARD_DISK_IDENT_METADATA_TAG, HARD_DISK_METADATA_TAG,
 };
 use libchdman_rs::hd::{self, HdCreateOptions};
-use libchdman_rs::{
-    cd, dvd, Chd, CHD_CODEC_LZMA, CHD_CODEC_NONE, CHD_CODEC_ZLIB, CHD_CODEC_ZSTD,
-};
+use libchdman_rs::{cd, dvd, Chd, CHD_CODEC_LZMA, CHD_CODEC_NONE, CHD_CODEC_ZLIB, CHD_CODEC_ZSTD};
 
 mod common;
 
@@ -19,7 +17,9 @@ fn synth(len: usize, seed: u64) -> Vec<u8> {
     let mut s = seed;
     (0..len)
         .map(|_| {
-            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (s >> 33) as u8
         })
         .collect()
@@ -78,7 +78,9 @@ fn copy_hd_changes_codec_preserves_payload_and_metadata() {
     // Metadata records preserved verbatim (GDDD + IDNT).
     let gddd = dst_chd.read_metadata(HARD_DISK_METADATA_TAG, 0).unwrap();
     assert!(std::str::from_utf8(&gddd).unwrap().contains("CYLS:"));
-    let ident_back = dst_chd.read_metadata(HARD_DISK_IDENT_METADATA_TAG, 0).unwrap();
+    let ident_back = dst_chd
+        .read_metadata(HARD_DISK_IDENT_METADATA_TAG, 0)
+        .unwrap();
     assert_eq!(ident_back, ident);
 
     // Re-extract and byte-compare.

@@ -1,6 +1,4 @@
 use libchdman_rs::{make_tag, Chd, ChdError};
-use std::fs::File;
-use std::io::{Read, Write};
 use tempfile::tempdir;
 
 #[test]
@@ -46,8 +44,8 @@ fn test_hunk_io() {
         Chd::create(chd_path_str, 8192, 4096, 4096, [0, 0, 0, 0]).expect("Failed to create CHD");
 
     let mut hunk0 = vec![0u8; 4096];
-    for i in 0..4096 {
-        hunk0[i] = (i % 256) as u8;
+    for (i, slot) in hunk0.iter_mut().enumerate() {
+        *slot = (i % 256) as u8;
     }
 
     chd.write_hunk(0, &hunk0).expect("Failed to write hunk 0");
@@ -58,10 +56,7 @@ fn test_hunk_io() {
     assert_eq!(hunk0, read_back);
 
     // Partial read/write via bytes
-    let mut hunk1_data = vec![0u8; 100];
-    for i in 0..100 {
-        hunk1_data[i] = 0xAA;
-    }
+    let hunk1_data = vec![0xAAu8; 100];
     chd.write_bytes(4096 + 50, &hunk1_data)
         .expect("Failed to write bytes");
 

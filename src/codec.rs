@@ -73,8 +73,7 @@ pub fn parse_codec_spec(s: &str) -> Result<[u32; 4]> {
     }
 
     let mut out = [CHD_CODEC_NONE; 4];
-    let mut count = 0usize;
-    for name in s.split(',') {
+    for (count, name) in s.split(',').enumerate() {
         if count == 4 {
             // chdman silently truncates at 4 — we reject so callers
             // notice typos like `"cdlz,cdzl,cdfl,zlib,zstd"`.
@@ -89,7 +88,6 @@ pub fn parse_codec_spec(s: &str) -> Result<[u32; 4]> {
             return Err(ChdError::UnknownCompression);
         }
         out[count] = tag;
-        count += 1;
     }
     Ok(out)
 }

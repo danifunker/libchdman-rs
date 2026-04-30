@@ -12,9 +12,7 @@ use std::path::Path;
 
 use crate::enhancements::metadata::tags::{HARD_DISK_IDENT_METADATA_TAG, HARD_DISK_METADATA_TAG};
 use crate::streaming::{run_compression, StreamingSource};
-use crate::{
-    sys, Chd, ChdCompressor, ChdError, CompressionProgress, Result, CHD_CODEC_ZLIB,
-};
+use crate::{sys, Chd, ChdCompressor, ChdError, CompressionProgress, Result, CHD_CODEC_ZLIB};
 
 /// Cylinder/head/sector geometry plus bytes-per-sector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,7 +26,9 @@ pub struct HdGeometry {
 impl HdGeometry {
     /// Total logical bytes implied by this geometry.
     pub fn logical_bytes(&self) -> u64 {
-        u64::from(self.cylinders) * u64::from(self.heads) * u64::from(self.sectors)
+        u64::from(self.cylinders)
+            * u64::from(self.heads)
+            * u64::from(self.sectors)
             * u64::from(self.sector_bytes)
     }
 }
@@ -81,18 +81,18 @@ pub fn compute_chs(logical_bytes: u64, sector_size: u32) -> Result<HdGeometry> {
     if logical_bytes == 0 || sector_size == 0 {
         return Err(ChdError::InvalidData);
     }
-    if logical_bytes % u64::from(sector_size) != 0 {
+    if !logical_bytes.is_multiple_of(u64::from(sector_size)) {
         return Err(ChdError::InvalidData);
     }
 
-    let initial = (logical_bytes / u64::from(sector_size)) as u64;
+    let initial = logical_bytes / u64::from(sector_size);
     let mut total: u64 = initial;
     loop {
         for cur_sectors in (2u32..=63).rev() {
-            if total % u64::from(cur_sectors) == 0 {
+            if total.is_multiple_of(u64::from(cur_sectors)) {
                 let total_heads = total / u64::from(cur_sectors);
                 for cur_heads in (2u32..=16).rev() {
-                    if total_heads % u64::from(cur_heads) == 0 {
+                    if total_heads.is_multiple_of(u64::from(cur_heads)) {
                         let cylinders = (total_heads / u64::from(cur_heads)) as u32;
                         return Ok(HdGeometry {
                             cylinders,
@@ -152,10 +152,10 @@ fn validate_options(o: &HdCreateOptions) -> Result<()> {
     if o.unit_size == 0 || o.hunk_size == 0 {
         return Err(ChdError::InvalidData);
     }
-    if o.hunk_size % o.unit_size != 0 {
+    if !o.hunk_size.is_multiple_of(o.unit_size) {
         return Err(ChdError::InvalidData);
     }
-    if o.logical_size % u64::from(o.unit_size) != 0 {
+    if !o.logical_size.is_multiple_of(u64::from(o.unit_size)) {
         return Err(ChdError::InvalidData);
     }
     Ok(())
@@ -185,10 +185,7 @@ pub fn create_from_reader<R: Read>(
 
     let source = StreamingSource::new(reader, opts.logical_size);
     let mut compressor = ChdCompressor::new(source);
-    let path_str = out_path
-        .to_str()
-        .ok_or(ChdError::InvalidFile)?
-        .to_string();
+    let path_str = out_path.to_str().ok_or(ChdError::InvalidFile)?.to_string();
     compressor.create_file(
         &path_str,
         opts.logical_size,
@@ -200,15 +197,15 @@ pub fn create_from_reader<R: Read>(
     // Metadata must be written before compress_begin spins up workers,
     // so it lives in the on-disk header. chdman writes GDDD then IDNT
     // in that order; preserve.
-    write_compressor_metadata(&mut compressor, HARD_DISK_METADATA_TAG, 0, &format_gddd(geom), 1)?;
+    write_compressor_metadata(
+        &mut compressor,
+        HARD_DISK_METADATA_TAG,
+        0,
+        &format_gddd(geom),
+        1,
+    )?;
     if let Some(ident) = &opts.ident {
-        write_compressor_metadata(
-            &mut compressor,
-            HARD_DISK_IDENT_METADATA_TAG,
-            0,
-            ident,
-            1,
-        )?;
+        write_compressor_metadata(&mut compressor, HARD_DISK_IDENT_METADATA_TAG, 0, ident, 1)?;
     }
 
     run_compression(compressor, out_path, progress, cancel)
@@ -240,11 +237,7 @@ pub fn extract_to_writer<W: Write>(
     mut writer: W,
     progress: &mut dyn FnMut(u64),
 ) -> Result<()> {
-    let chd = Chd::open(
-        chd_path.to_str().ok_or(ChdError::InvalidFile)?,
-        false,
-        None,
-    )?;
+    let chd = Chd::open(chd_path.to_str().ok_or(ChdError::InvalidFile)?, false, None)?;
     let total = chd.logical_bytes();
     let hunk = chd.hunk_bytes() as usize;
     let mut buf = vec![0u8; hunk];

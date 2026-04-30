@@ -42,7 +42,7 @@ impl Write for MemoryIo {
 
 impl Seek for MemoryIo {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        let mut data_len = self.data.lock().unwrap().len() as u64;
+        let data_len = self.data.lock().unwrap().len() as u64;
         match pos {
             SeekFrom::Start(p) => self.pos = p,
             SeekFrom::End(p) => self.pos = (data_len as i64 + p) as u64,
