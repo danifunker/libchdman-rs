@@ -32,7 +32,10 @@ Version: 0.287.0-l1
   - Full FourCC set in `src/codec.rs` (zlib, zstd, lzma, huff, flac, cdzl, cdzs, cdlz, cdfl, avhuff).
   - `codec_exists` / `codec_name` thin wrappers over MAME's `chd_codec_list`.
   - `parse_codec_spec` mirrors chdman's `-c` syntax (`"none"` or 1..=4 comma-separated mnemonics).
-- [ ] **M3**: Streaming `Read` → `ChdCompressor` adapter (driven by `ChdDataHandler`).
+- [x] **M3**: Streaming `Read` → `ChdCompressor` adapter.
+  - `StreamingSource<R: Read>` adapts a Rust reader to MAME's pull-model `read_data`. Zero-pads past EOF, asserts monotonic offsets (verified against `chd_file_compressor::async_read` invariants), tolerates short reads from the underlying source.
+  - `run_compression` drives `compress_begin`/`compress_continue`, samples the user `cancel` callback between iterations, and on cancel/error drops the compressor and unlinks the partial output file.
+  - Crate-private (`pub(crate)`); the public surface comes through `hd::create_from_reader` etc. in M4+.
 - [ ] **M4**: `hd` module (`createraw` / `extractraw`, GDDD metadata).
 - [ ] **M5**: `dvd` module (`createdvd` / `extractdvd`, DVD metadata tag).
 - [ ] **M6**: `cd` module (`createcd` / `extractcd`, CUE parser via FFI shim, ECC/EDC via FFI shim, CHT2 metadata).

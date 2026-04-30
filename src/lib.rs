@@ -1,5 +1,6 @@
 pub mod codec;
 pub mod enhancements;
+pub(crate) mod streaming;
 pub mod sys;
 
 pub use codec::{
