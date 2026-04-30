@@ -10,7 +10,12 @@ This crate provides native support for reading, writing, and managing CHD (Compr
 - **Metadata Management**: Add, read, and delete CHD metadata.
 - **Custom I/O**: Implement the `ChdIo` trait to provide your own I/O backends (e.g., in-memory, network, or custom encrypted filesystems).
 - **Asynchronous Compression**: High-level `ChdCompressor` API for creating compressed CHDs from custom data sources.
+- **chdman parity**: `hd`, `dvd`, `cd`, and `copy` modules cover `createhd`/`extracthd`, `createdvd`/`extractdvd`, `createcd`/`extractcd`, and `copy` byte-for-byte.
 - **Zero Re-implementation**: Directly wraps MAME's `libutil/chd.cpp`.
+
+For the full API surface and a chdman-flag-by-flag mapping see
+[`docs/format-modules.md`](docs/format-modules.md) and
+[`docs/chdman-mapping.md`](docs/chdman-mapping.md).
 
 ## Usage
 
@@ -20,8 +25,62 @@ This crate provides native support for reading, writing, and managing CHD (Compr
 use libchdman_rs::Chd;
 
 let chd = Chd::open("game.chd", false, None).expect("Failed to open CHD");
-println!("Version: {}", chd.version());
-println!("Logical bytes: {}", chd.logical_bytes());
+let info = chd.info().expect("info");
+println!("Version: {}, logical bytes: {}", info.version, info.logical_bytes);
+println!("CD: {}, DVD: {}, HD: {}", info.is_cd, info.is_dvd, info.is_hd);
+```
+
+### Creating a hard-disk CHD
+
+```rust
+use libchdman_rs::hd::{create_from_path, HdCreateOptions};
+use std::path::Path;
+
+create_from_path(
+    Path::new("disk.img"),
+    Path::new("disk.chd"),
+    HdCreateOptions::default(),
+    &mut |p| eprintln!("{}/{}", p.bytes_done, p.bytes_total),
+    &|| false,
+)?;
+```
+
+### Creating a CD CHD from a CUE
+
+```rust
+use libchdman_rs::cd::{create_from_cue, CdCreateOptions};
+use libchdman_rs::parse_codec_spec;
+use std::path::Path;
+
+create_from_cue(
+    Path::new("game.cue"),
+    Path::new("game.chd"),
+    CdCreateOptions {
+        codecs: parse_codec_spec("cdlz,cdfl,cdzl")?,
+        ..CdCreateOptions::default()
+    },
+    &mut |_| {},
+    &|| false,
+)?;
+```
+
+### Re-compressing an existing CHD
+
+```rust
+use libchdman_rs::copy::{copy, CopyOptions};
+use libchdman_rs::{CHD_CODEC_LZMA, CHD_CODEC_ZLIB};
+use std::path::Path;
+
+copy(
+    Path::new("old.chd"),
+    Path::new("new.chd"),
+    CopyOptions {
+        hunk_size: None,
+        codecs: [CHD_CODEC_LZMA, CHD_CODEC_ZLIB, 0, 0],
+    },
+    &mut |_| {},
+    &|| false,
+)?;
 ```
 
 ### Custom I/O

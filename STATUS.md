@@ -59,7 +59,7 @@ Version: 0.287.0-l1
   - `CopyOptions { hunk_size: Option<u32>, codecs: [u32; 4] }`. None for hunk_size preserves the source's value.
   - `copy(source, dest, opts, progress, cancel)` opens the source, snapshots all metadata, allocates a fresh compressor whose `ChdDataHandler` reads from the source via `read_bytes`, clones every metadata record with MAME's append index (`CHDMETAINDEX_APPEND = ~0u32`), and runs compression to completion.
   - 4 tests: HD codec change preserves raw_sha1 + GDDD/IDNT, HD hunk_size change with byte-exact extract, DVD uncompressed → LZMA preserves the `DVD ` tag and round-trips, CD copy preserves track metadata across `[CDLZ,CDZL]` → `[CDFL,CDZL]` re-compression.
-- [ ] **M9**: Documentation pass (`docs/format-modules.md`, `docs/chdman-mapping.md`, README examples).
+- [x] **M9**: Documentation pass — `docs/format-modules.md` (per-module API + examples), `docs/chdman-mapping.md` (subcommand + flag mapping), README examples for hd/cd/copy plus `Chd::info` snippet, links from README to both docs.
 
 ## Remaining Carry-Over
 - [ ] **SIMD Optimization Verification**: Verify that the FLAC SIMD optimizations are correctly used on all target platforms.
