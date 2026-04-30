@@ -1,6 +1,12 @@
+pub mod codec;
 pub mod enhancements;
 pub mod sys;
 
+pub use codec::{
+    codec_exists, codec_name, parse_codec_spec, CHD_CODEC_AVHUFF, CHD_CODEC_CD_FLAC,
+    CHD_CODEC_CD_LZMA, CHD_CODEC_CD_ZLIB, CHD_CODEC_CD_ZSTD, CHD_CODEC_FLAC, CHD_CODEC_HUFF,
+    CHD_CODEC_LZMA, CHD_CODEC_NONE, CHD_CODEC_ZLIB, CHD_CODEC_ZSTD,
+};
 pub use enhancements::{
     cdrom, metadata, ChdReader, HunkIter, HunkReader, MetadataEntry, MetadataIter, Version,
 };
@@ -673,8 +679,3 @@ impl Drop for Sha1Creator {
 pub const fn make_tag(a: u8, b: u8, c: u8, d: u8) -> u32 {
     ((a as u32) << 24) | ((b as u32) << 16) | ((c as u32) << 8) | (d as u32)
 }
-
-pub const CHD_CODEC_NONE: u32 = 0;
-pub const CHD_CODEC_ZLIB: u32 = 0x7a6c6962; // 'zlib'
-pub const CHD_CODEC_LZMA: u32 = 0x6c7a6d61; // 'lzma'
-pub const CHD_CODEC_FLAC: u32 = 0x666c6163; // 'flac'

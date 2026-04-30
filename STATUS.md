@@ -28,7 +28,10 @@ Version: 0.287.0-l1
   - `Chd::info() -> ChdInfo` aggregates header/codec/sha1/track-count/format-flag introspection in one walk.
   - Per-method introspection helpers (`is_hd`, `is_cd`, `is_dvd`, `compression(idx)`, `compression_codecs()`, etc.) removed in favour of `ChdInfo`.
   - `chdman_compat_tests` feature flag declared (dev-local only).
-- [ ] **M2**: Codec FourCC table + `parse_codec_spec` / `codec_name` / `codec_exists`.
+- [x] **M2**: Codec FourCC table + `parse_codec_spec` / `codec_name` / `codec_exists`.
+  - Full FourCC set in `src/codec.rs` (zlib, zstd, lzma, huff, flac, cdzl, cdzs, cdlz, cdfl, avhuff).
+  - `codec_exists` / `codec_name` thin wrappers over MAME's `chd_codec_list`.
+  - `parse_codec_spec` mirrors chdman's `-c` syntax (`"none"` or 1..=4 comma-separated mnemonics).
 - [ ] **M3**: Streaming `Read` → `ChdCompressor` adapter (driven by `ChdDataHandler`).
 - [ ] **M4**: `hd` module (`createraw` / `extractraw`, GDDD metadata).
 - [ ] **M5**: `dvd` module (`createdvd` / `extractdvd`, DVD metadata tag).
