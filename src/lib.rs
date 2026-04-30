@@ -1,5 +1,6 @@
 pub mod cd;
 pub mod codec;
+pub mod copy;
 pub mod dvd;
 pub mod enhancements;
 pub mod hd;

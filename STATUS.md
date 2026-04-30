@@ -55,7 +55,10 @@ Version: 0.287.0-l1
   - **M6d–e sector pipeline**: `sys/cd_shim.cpp` ports chdman's `chd_cd_compressor` near-verbatim (chdman.cpp:419) — track lookup, byte-swap, split-bin handling. Same code path = byte-for-byte parity.
   - **M6f public API**: `cd::create_from_cue`, `cd::create_from_iso` (synthesizes a temp CUE next to the ISO), `cd::list_tracks`, `cd::extract_to_cue` (combined `.bin` + emitted `.cue`, audio swapped back to little-endian), `cd::extract_to_iso` (single MODE1/MODE1_RAW track only; uses MAME's `read_data` with `CD_TRACK_MODE1` to strip 2352→2048 inside the shim).
   - 7 tests: 2-track BIN/CUE round-trip through create + `list_tracks`, ISO `create_from_iso`, codec matrix sweep over `[CDLZ,CDZL]`/`[CDFL,CDZL]`/`[CDZS,CDZL]`/`[NONE;4]`, cancellation deletes partial output, `extract_to_iso` byte-exact round-trip from the ISO fixture, `extract_to_iso` rejects multi-track CHDs, `extract_to_cue` byte-exact round-trip with the 2-track BIN/CUE fixture.
-- [ ] **M7**: `copy` module (re-compress with metadata pass-through).
+- [x] **M7**: `copy` module — chdman `copy` parity.
+  - `CopyOptions { hunk_size: Option<u32>, codecs: [u32; 4] }`. None for hunk_size preserves the source's value.
+  - `copy(source, dest, opts, progress, cancel)` opens the source, snapshots all metadata, allocates a fresh compressor whose `ChdDataHandler` reads from the source via `read_bytes`, clones every metadata record with MAME's append index (`CHDMETAINDEX_APPEND = ~0u32`), and runs compression to completion.
+  - 4 tests: HD codec change preserves raw_sha1 + GDDD/IDNT, HD hunk_size change with byte-exact extract, DVD uncompressed → LZMA preserves the `DVD ` tag and round-trips, CD copy preserves track metadata across `[CDLZ,CDZL]` → `[CDFL,CDZL]` re-compression.
 - [ ] **M9**: Documentation pass (`docs/format-modules.md`, `docs/chdman-mapping.md`, README examples).
 
 ## Remaining Carry-Over
