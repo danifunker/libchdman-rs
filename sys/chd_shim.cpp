@@ -257,6 +257,11 @@ int chd_shim_has_parent(chd_file_t* chd) {
     return ((chd_file*)chd)->parent() != nullptr ? 1 : 0;
 }
 
+// MAME's check_is_*() return std::error_condition: empty (falsy) means
+// success ("yes, this CHD is of that kind"), non-empty (truthy) means
+// "no". The ternary inverts that back to the more conventional shim
+// convention of 1 = yes, 0 = no — which is what the Rust side reads via
+// `!= 0`. Counter-intuitive at first glance; intentional.
 int chd_shim_check_is_hd(chd_file_t* chd) {
     return ((chd_file*)chd)->check_is_hd() ? 0 : 1;
 }

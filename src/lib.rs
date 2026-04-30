@@ -1,6 +1,17 @@
+pub mod cd;
+pub mod codec;
+pub mod copy;
+pub mod dvd;
 pub mod enhancements;
+pub mod hd;
+pub(crate) mod streaming;
 pub mod sys;
 
+pub use codec::{
+    codec_exists, codec_name, parse_codec_spec, CHD_CODEC_AVHUFF, CHD_CODEC_CD_FLAC,
+    CHD_CODEC_CD_LZMA, CHD_CODEC_CD_ZLIB, CHD_CODEC_CD_ZSTD, CHD_CODEC_FLAC, CHD_CODEC_HUFF,
+    CHD_CODEC_LZMA, CHD_CODEC_NONE, CHD_CODEC_ZLIB, CHD_CODEC_ZSTD,
+};
 pub use enhancements::{
     cdrom, metadata, ChdReader, HunkIter, HunkReader, MetadataEntry, MetadataIter, Version,
 };
@@ -15,7 +26,7 @@ pub use sys::ChdError;
 pub type Result<T> = std::result::Result<T, ChdError>;
 
 pub struct Chd {
-    inner: *mut sys::ChdFile,
+    pub(crate) inner: *mut sys::ChdFile,
     owned: bool,
 }
 
@@ -291,6 +302,87 @@ impl Chd {
         }
     }
 
+    /// Aggregate header + introspection snapshot. One FFI-walking call
+    /// returns everything chdman's `info` subcommand prints, suitable for
+    /// rendering in a UI without further round-trips.
+    ///
+    /// `track_count` counts CHT2/CHTR/CHGD metadata entries; for non-CD/GD
+    /// CHDs it is zero. `metadata_tags` lists every metadata tag in the
+    /// order MAME stores them, paired with its index within that tag.
+    pub fn info(&self) -> Result<ChdInfo> {
+        let codecs = [0i32, 1, 2, 3].map(|i| unsafe { sys::chd_shim_compression(self.inner, i) });
+
+        // Walk metadata once. Counts CD/GD track tags and collects every
+        // (tag, index) pair for downstream consumers.
+        let mut metadata_tags: Vec<(u32, u32)> = Vec::new();
+        let mut per_tag_index: std::collections::HashMap<u32, u32> =
+            std::collections::HashMap::new();
+        let mut track_count: u32 = 0;
+        let mut idx: u32 = 0;
+        loop {
+            let mut tag: u32 = 0;
+            let mut flags: u8 = 0;
+            let mut size: u32 = 0;
+            let err = unsafe {
+                sys::chd_shim_metadata_enum(
+                    self.inner,
+                    idx,
+                    &mut tag,
+                    &mut flags,
+                    ptr::null_mut(),
+                    0,
+                    &mut size,
+                )
+            };
+            match err {
+                ChdError::NoError => {
+                    let n = per_tag_index.entry(tag).or_insert(0);
+                    metadata_tags.push((tag, *n));
+                    *n += 1;
+                    if matches!(
+                        tag,
+                        // CHT2 / CHTR / CHGD — values match metadata::tags::*.
+                        0x43485432 | 0x43485452 | 0x43484744
+                    ) {
+                        track_count += 1;
+                    }
+                    idx += 1;
+                }
+                ChdError::MetadataNotFound => break,
+                other => return Err(other),
+            }
+        }
+
+        let is_dvd = unsafe { sys::chd_shim_check_is_dvd(self.inner) != 0 };
+        let is_hd = unsafe { sys::chd_shim_check_is_hd(self.inner) != 0 };
+        let is_cd = unsafe { sys::chd_shim_check_is_cd(self.inner) != 0 };
+        let is_gd = unsafe { sys::chd_shim_check_is_gd(self.inner) != 0 };
+        let is_av = unsafe { sys::chd_shim_check_is_av(self.inner) != 0 };
+        let compressed = unsafe { sys::chd_shim_compressed(self.inner) != 0 };
+        let has_parent = unsafe { sys::chd_shim_has_parent(self.inner) != 0 };
+
+        Ok(ChdInfo {
+            version: self.version(),
+            hunk_bytes: self.hunk_bytes(),
+            unit_bytes: self.unit_bytes(),
+            hunk_count: self.hunk_count(),
+            logical_bytes: self.logical_bytes(),
+            codecs,
+            sha1: self.sha1(),
+            raw_sha1: self.raw_sha1(),
+            parent_sha1: self.parent_sha1(),
+            metadata_tags,
+            track_count,
+            compressed,
+            has_parent,
+            is_hd,
+            is_cd,
+            is_gd,
+            is_dvd,
+            is_av,
+        })
+    }
+
     pub fn verify(&self) -> Result<()> {
         let mut rawsha = Sha1Creator::new();
         let mut buffer = vec![0u8; 1024 * 1024];
@@ -316,6 +408,34 @@ impl Chd {
 pub struct HunkInfo {
     pub compressor: u32,
     pub compbytes: u32,
+}
+
+/// Aggregate snapshot returned by [`Chd::info`]. Mirrors the data chdman's
+/// `info` subcommand prints, in a single FFI walk.
+#[derive(Debug, Clone)]
+pub struct ChdInfo {
+    pub version: u32,
+    pub hunk_bytes: u32,
+    pub unit_bytes: u32,
+    pub hunk_count: u32,
+    pub logical_bytes: u64,
+    /// Per-slot codec FourCCs (slot 0..=3). Zero means "no codec".
+    pub codecs: [u32; 4],
+    pub sha1: [u8; 20],
+    pub raw_sha1: [u8; 20],
+    pub parent_sha1: [u8; 20],
+    /// Every metadata entry in MAME's stored order, paired with its
+    /// per-tag index (so `(CHT2, 0)`, `(CHT2, 1)`, … are distinguishable).
+    pub metadata_tags: Vec<(u32, u32)>,
+    /// Count of CD/GD track metadata entries (CHT2 + CHTR + CHGD).
+    pub track_count: u32,
+    pub compressed: bool,
+    pub has_parent: bool,
+    pub is_hd: bool,
+    pub is_cd: bool,
+    pub is_gd: bool,
+    pub is_dvd: bool,
+    pub is_av: bool,
 }
 
 impl Drop for Chd {
@@ -412,7 +532,8 @@ pub trait ChdDataHandler {
 }
 
 pub struct ChdCompressor {
-    inner: *mut sys::ChdFileCompressor,
+    pub(crate) inner: *mut sys::ChdFileCompressor,
+    pub(crate) logical_bytes: u64,
 }
 
 impl ChdCompressor {
@@ -425,6 +546,7 @@ impl ChdCompressor {
         unsafe {
             Self {
                 inner: sys::chd_shim_compressor_alloc(handle, ops),
+                logical_bytes: 0,
             }
         }
     }
@@ -449,10 +571,21 @@ impl ChdCompressor {
             )
         };
         if err == ChdError::NoError {
+            self.logical_bytes = logicalbytes;
             Ok(())
         } else {
             Err(err)
         }
+    }
+
+    /// Internal: the underlying compressor pointer reinterpreted as a
+    /// plain `chd_file_t*`. `chd_file_compressor` inherits from
+    /// `chd_file`, so calling chd_file shims (e.g. `write_metadata`)
+    /// against this pointer is valid; the C++ vtable dispatches
+    /// correctly.
+    #[doc(hidden)]
+    pub fn as_chd_file_ptr(&mut self) -> *mut sys::ChdFile {
+        self.inner as *mut sys::ChdFile
     }
 
     pub fn compress_begin(&mut self) {
@@ -461,30 +594,50 @@ impl ChdCompressor {
         }
     }
 
-    pub fn compress_continue(&mut self) -> Result<CompressionProgress> {
-        let mut progress = 0.0;
-        let mut ratio = 0.0;
-        let err =
-            unsafe { sys::chd_shim_compressor_continue(self.inner, &mut progress, &mut ratio) };
-        if err == ChdError::NoError
-            || err == ChdError::WalkingParent
-            || err == ChdError::Compressing
-        {
-            Ok(CompressionProgress {
-                err,
-                progress,
-                ratio,
-            })
-        } else {
-            Err(err)
+    /// Drives one chunk of compression and reports state.
+    ///
+    /// Returns `CompressStep::Done` when MAME signals completion, or
+    /// `CompressStep::Continue` while work remains. Any other error is
+    /// surfaced via `Err`.
+    pub fn compress_continue(&mut self) -> Result<CompressStep> {
+        let mut progress_frac = 0.0f64;
+        let mut ratio = 0.0f64;
+        let err = unsafe {
+            sys::chd_shim_compressor_continue(self.inner, &mut progress_frac, &mut ratio)
+        };
+        let total = self.logical_bytes;
+        let done = (progress_frac.clamp(0.0, 1.0) * total as f64) as u64;
+        let prog = CompressionProgress {
+            bytes_done: done.min(total),
+            bytes_total: total,
+            ratio,
+        };
+        match err {
+            ChdError::NoError => Ok(CompressStep::Done(prog)),
+            ChdError::WalkingParent | ChdError::Compressing => Ok(CompressStep::Continue(prog)),
+            other => Err(other),
         }
     }
 }
 
+/// Byte-accurate progress reported during compression.
+///
+/// `bytes_total` is the logical size requested at `create_file` time;
+/// `bytes_done` is derived from MAME's normalized progress fraction.
+/// `ratio` is the running compressed/logical ratio (0.0..=1.0+).
+#[derive(Debug, Clone, Copy)]
 pub struct CompressionProgress {
-    pub err: ChdError,
-    pub progress: f64,
+    pub bytes_done: u64,
+    pub bytes_total: u64,
     pub ratio: f64,
+}
+
+/// One step of a compression loop. `Continue` means the caller should call
+/// `compress_continue` again; `Done` means the output is fully written.
+#[derive(Debug, Clone, Copy)]
+pub enum CompressStep {
+    Continue(CompressionProgress),
+    Done(CompressionProgress),
 }
 
 extern "C" fn chd_compressor_read_data<T: ChdDataHandler>(
@@ -541,8 +694,3 @@ impl Drop for Sha1Creator {
 pub const fn make_tag(a: u8, b: u8, c: u8, d: u8) -> u32 {
     ((a as u32) << 24) | ((b as u32) << 16) | ((c as u32) << 8) | (d as u32)
 }
-
-pub const CHD_CODEC_NONE: u32 = 0;
-pub const CHD_CODEC_ZLIB: u32 = 0x7a6c6962; // 'zlib'
-pub const CHD_CODEC_LZMA: u32 = 0x6c7a6d61; // 'lzma'
-pub const CHD_CODEC_FLAC: u32 = 0x666c6163; // 'flac'

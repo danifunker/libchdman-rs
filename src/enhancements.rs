@@ -65,46 +65,6 @@ impl Chd {
         Version::from_raw(self.version())
     }
 
-    /// True if any compression slot is non-NONE.
-    pub fn is_compressed(&self) -> bool {
-        unsafe { sys::chd_shim_compressed(self.raw()) != 0 }
-    }
-
-    /// True if this CHD references a parent (delta CHD).
-    pub fn has_parent(&self) -> bool {
-        unsafe { sys::chd_shim_has_parent(self.raw()) != 0 }
-    }
-
-    /// Returns the codec assigned to compression slot `index` (0..=3),
-    /// or `None` if the index is out of range.
-    pub fn compression(&self, index: usize) -> Option<u32> {
-        if index >= 4 {
-            return None;
-        }
-        Some(unsafe { sys::chd_shim_compression(self.raw(), index as i32) })
-    }
-
-    /// Convenience: all four compression slots as a fixed-size array.
-    pub fn compression_codecs(&self) -> [u32; 4] {
-        [0, 1, 2, 3].map(|i| unsafe { sys::chd_shim_compression(self.raw(), i) })
-    }
-
-    pub fn is_hd(&self) -> bool {
-        unsafe { sys::chd_shim_check_is_hd(self.raw()) != 0 }
-    }
-    pub fn is_cd(&self) -> bool {
-        unsafe { sys::chd_shim_check_is_cd(self.raw()) != 0 }
-    }
-    pub fn is_gd(&self) -> bool {
-        unsafe { sys::chd_shim_check_is_gd(self.raw()) != 0 }
-    }
-    pub fn is_dvd(&self) -> bool {
-        unsafe { sys::chd_shim_check_is_dvd(self.raw()) != 0 }
-    }
-    pub fn is_av(&self) -> bool {
-        unsafe { sys::chd_shim_check_is_av(self.raw()) != 0 }
-    }
-
     /// Iterator over every hunk in order. Each item is a freshly allocated
     /// `Vec<u8>` of size `hunk_bytes()`.
     pub fn hunks(&self) -> HunkIter<'_> {

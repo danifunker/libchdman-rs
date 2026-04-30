@@ -19,13 +19,12 @@ fn raw_header_introspection() {
     let chd = Chd::open(f.path_str(), false, None).unwrap();
 
     assert_eq!(chd.version_typed(), Version::V5);
-    assert!(!chd.is_compressed());
-    assert!(!chd.has_parent());
-    assert!(!chd.is_hd());
-    assert!(!chd.is_cd());
-    assert_eq!(chd.compression(0), Some(0));
-    assert_eq!(chd.compression(4), None);
-    assert_eq!(chd.compression_codecs(), [0, 0, 0, 0]);
+    let info = chd.info().unwrap();
+    assert!(!info.compressed);
+    assert!(!info.has_parent);
+    assert!(!info.is_hd);
+    assert!(!info.is_cd);
+    assert_eq!(info.codecs, [0, 0, 0, 0]);
 }
 
 #[test]
@@ -106,8 +105,9 @@ fn hd_typing_and_metadata() {
     let f = common::build_hd();
     let chd = Chd::open(f.path_str(), false, None).unwrap();
 
-    assert!(chd.is_hd());
-    assert!(!chd.is_cd());
+    let info = chd.info().unwrap();
+    assert!(info.is_hd);
+    assert!(!info.is_cd);
 
     let entries: Vec<_> = chd
         .metadata_iter()
@@ -131,8 +131,10 @@ fn cd_typing_and_metadata() {
     let f = common::build_cd();
     let chd = Chd::open(f.path_str(), false, None).unwrap();
 
-    assert!(chd.is_cd());
-    assert!(!chd.is_hd());
+    let info = chd.info().unwrap();
+    assert!(info.is_cd);
+    assert!(!info.is_hd);
+    assert_eq!(info.track_count, 2);
 
     let entries: Vec<_> = chd
         .metadata_iter()
