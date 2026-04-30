@@ -199,6 +199,65 @@ extern "C" {
 
 }
 
+pub enum ChdShimToc {}
+pub enum ChdShimCdrom {}
+
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct ChdShimTrack {
+    pub trktype: u32,
+    pub subtype: u32,
+    pub datasize: u32,
+    pub subsize: u32,
+    pub frames: u32,
+    pub extraframes: u32,
+    pub pregap: u32,
+    pub postgap: u32,
+    pub pgtype: u32,
+    pub pgsub: u32,
+    pub pgdatasize: u32,
+    pub pgsubsize: u32,
+    pub padframes: u32,
+    pub splitframes: u32,
+}
+
+extern "C" {
+    pub fn chd_shim_toc_alloc() -> *mut ChdShimToc;
+    pub fn chd_shim_toc_free(toc: *mut ChdShimToc);
+    pub fn chd_shim_toc_parse(toc: *mut ChdShimToc, path: *const c_char) -> ChdError;
+    pub fn chd_shim_toc_num_tracks(toc: *const ChdShimToc) -> u32;
+    pub fn chd_shim_toc_num_sessions(toc: *const ChdShimToc) -> u32;
+    pub fn chd_shim_toc_flags(toc: *const ChdShimToc) -> u32;
+    pub fn chd_shim_toc_get_track(toc: *const ChdShimToc, i: u32, out: *mut ChdShimTrack);
+    pub fn chd_shim_toc_get_track_fname(toc: *const ChdShimToc, i: u32) -> *const c_char;
+    pub fn chd_shim_toc_get_track_offset(toc: *const ChdShimToc, i: u32) -> u32;
+    pub fn chd_shim_toc_get_track_swap(toc: *const ChdShimToc, i: u32) -> c_int;
+    pub fn chd_shim_toc_pad_tracks(toc: *mut ChdShimToc);
+    pub fn chd_shim_toc_logical_bytes(toc: *const ChdShimToc) -> u64;
+
+    pub fn chd_shim_cd_compressor_alloc(toc: *mut ChdShimToc) -> *mut ChdFileCompressor;
+    pub fn chd_shim_cd_write_metadata(chd: *mut ChdFile, toc: *const ChdShimToc) -> ChdError;
+
+    pub fn chd_shim_cdrom_open(chd: *mut ChdFile) -> *mut ChdShimCdrom;
+    pub fn chd_shim_cdrom_free(c: *mut ChdShimCdrom);
+    pub fn chd_shim_cdrom_num_tracks(c: *const ChdShimCdrom) -> u32;
+    pub fn chd_shim_cdrom_get_track(c: *const ChdShimCdrom, i: u32, out: *mut ChdShimTrack);
+    pub fn chd_shim_cdrom_get_track_start(c: *const ChdShimCdrom, track: u32) -> u32;
+    pub fn chd_shim_cdrom_read_data(
+        c: *mut ChdShimCdrom,
+        lba: u32,
+        buffer: *mut c_void,
+        datatype: u32,
+        phys: c_int,
+    ) -> c_int;
+    pub fn chd_shim_cdrom_read_subcode(
+        c: *mut ChdShimCdrom,
+        lba: u32,
+        buffer: *mut c_void,
+        phys: c_int,
+    ) -> c_int;
+}
+
 pub enum ChdSha1 {}
 
 extern "C" {

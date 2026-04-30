@@ -45,7 +45,12 @@ Version: 0.287.0-l1
   - **Important**: `run_compression` was changed to drive the compressor to completion even on cancel (then unlink), avoiding the C++ vtable race during `~RustChdCompressor` when worker threads are still mid-flight. Documented in `streaming.rs`.
   - 8 integration tests cover compute_chs, GDDD format, codec matrix (zlib/zstd/lzma), zero-padding short reader, IDNT writes, cancel-deletes-file, and a real-ISO round-trip from the checked-in fixture.
 - [ ] **M5**: `dvd` module (`createdvd` / `extractdvd`, DVD metadata tag).
-- [ ] **M6**: `cd` module (`createcd` / `extractcd`, CUE parser via FFI shim, ECC/EDC via FFI shim, CHT2 metadata).
+- [x] **M6**: `cd` module — chdman `createcd` / `extractcd` parity.
+  - **M6a CUE parser via FFI**: `chd_shim_toc_*` wraps `cdrom_file::parse_toc` (handles CUE, GDI, ISO, Nero TOC). No CUE logic reimplemented in Rust.
+  - **M6b–c metadata + ECC/EDC**: `chd_shim_cd_write_metadata` calls `cdrom_file::write_metadata` (writes CHT2). ECC/EDC, audio byte-swap, track padding all happen inside MAME's `cdrom_file` and the ported `chd_cd_compressor`.
+  - **M6d–e sector pipeline**: `sys/cd_shim.cpp` ports chdman's `chd_cd_compressor` near-verbatim (chdman.cpp:419) — track lookup, byte-swap, split-bin handling. Same code path = byte-for-byte parity.
+  - **M6f public API**: `cd::create_from_cue`, `cd::create_from_iso` (synthesizes a temp CUE next to the ISO), `cd::list_tracks`, `cd::extract_to_cue` (combined `.bin` + emitted `.cue`, audio swapped back to little-endian), `cd::extract_to_iso` (single MODE1/MODE1_RAW track only; uses MAME's `read_data` with `CD_TRACK_MODE1` to strip 2352→2048 inside the shim).
+  - 7 tests: 2-track BIN/CUE round-trip through create + `list_tracks`, ISO `create_from_iso`, codec matrix sweep over `[CDLZ,CDZL]`/`[CDFL,CDZL]`/`[CDZS,CDZL]`/`[NONE;4]`, cancellation deletes partial output, `extract_to_iso` byte-exact round-trip from the ISO fixture, `extract_to_iso` rejects multi-track CHDs, `extract_to_cue` byte-exact round-trip with the 2-track BIN/CUE fixture.
 - [ ] **M7**: `copy` module (re-compress with metadata pass-through).
 - [ ] **M9**: Documentation pass (`docs/format-modules.md`, `docs/chdman-mapping.md`, README examples).
 

@@ -7,9 +7,9 @@ description = "Rust wrapper for MAME CHD core"
 
 [dependencies]
 libc = "0.2"
+tempfile = "3"
 
 [dev-dependencies]
-tempfile = "3"
 zip = "2"
 
 [build-dependencies]

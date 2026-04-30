@@ -92,6 +92,73 @@ chd_error_t chd_shim_metadata_enum(chd_file_t* chd, uint32_t index,
                                     void* buffer, uint32_t buffer_len,
                                     uint32_t* result_len);
 
+// === CD-ROM support ===
+//
+// All CD logic is delegated to MAME's `cdrom_file` (parse_toc, ECC/EDC,
+// audio byte-swap, write_metadata) and a port of chdman's
+// `chd_cd_compressor` (which is in chdman.cpp, not in MAME's lib). No
+// CD-format logic is reimplemented in Rust.
+typedef struct chd_shim_toc_t chd_shim_toc_t;
+typedef struct chd_shim_cdrom_t chd_shim_cdrom_t;
+
+// Mirrors `cdrom_file::track_info` for the fields chdman uses on create.
+typedef struct {
+    uint32_t trktype;
+    uint32_t subtype;
+    uint32_t datasize;
+    uint32_t subsize;
+    uint32_t frames;
+    uint32_t extraframes;
+    uint32_t pregap;
+    uint32_t postgap;
+    uint32_t pgtype;
+    uint32_t pgsub;
+    uint32_t pgdatasize;
+    uint32_t pgsubsize;
+    uint32_t padframes;
+    uint32_t splitframes;
+} chd_shim_track_t;
+
+// TOC parse + per-track introspection.
+chd_shim_toc_t* chd_shim_toc_alloc();
+void chd_shim_toc_free(chd_shim_toc_t* toc);
+chd_error_t chd_shim_toc_parse(chd_shim_toc_t* toc, const char* path);
+uint32_t chd_shim_toc_num_tracks(const chd_shim_toc_t* toc);
+uint32_t chd_shim_toc_num_sessions(const chd_shim_toc_t* toc);
+uint32_t chd_shim_toc_flags(const chd_shim_toc_t* toc);
+void chd_shim_toc_get_track(const chd_shim_toc_t* toc, uint32_t i, chd_shim_track_t* out);
+const char* chd_shim_toc_get_track_fname(const chd_shim_toc_t* toc, uint32_t i);
+uint32_t chd_shim_toc_get_track_offset(const chd_shim_toc_t* toc, uint32_t i);
+int chd_shim_toc_get_track_swap(const chd_shim_toc_t* toc, uint32_t i);
+// After CHD creation we pad each track to TRACK_PADDING frames; chdman
+// writes the padding count back into trackinfo.extraframes before the
+// metadata is written. Call this before chd_shim_cd_write_metadata.
+void chd_shim_toc_pad_tracks(chd_shim_toc_t* toc);
+// Total logical bytes implied by the (possibly padded) toc.
+uint64_t chd_shim_toc_logical_bytes(const chd_shim_toc_t* toc);
+
+// CD compressor: a chd_file_compressor subclass implementing read_data
+// the way chdman's `chd_cd_compressor` does (track lookup + audio
+// byte-swap + ECC/EDC handled via MAME's frame layout). Returns a
+// `chd_file_compressor_t*` so the existing compressor shims work.
+chd_file_compressor_t* chd_shim_cd_compressor_alloc(chd_shim_toc_t* toc);
+
+// Writes CHT2 records using `cdrom_file::write_metadata`. Pass the
+// compressor's underlying chd_file pointer (as_chd_file_ptr in Rust).
+chd_error_t chd_shim_cd_write_metadata(chd_file_t* chd, const chd_shim_toc_t* toc);
+
+// Read-side: open a CHD as a cdrom_file for extract.
+chd_shim_cdrom_t* chd_shim_cdrom_open(chd_file_t* chd);
+void chd_shim_cdrom_free(chd_shim_cdrom_t* c);
+uint32_t chd_shim_cdrom_num_tracks(const chd_shim_cdrom_t* c);
+void chd_shim_cdrom_get_track(const chd_shim_cdrom_t* c, uint32_t i, chd_shim_track_t* out);
+uint32_t chd_shim_cdrom_get_track_start(const chd_shim_cdrom_t* c, uint32_t track);
+// Read a single LBA sector. `buffer` must be sized for `datatype`
+// (e.g. 2352 for raw, 2048 for cooked MODE1). `phys` flag matches
+// cdrom_file::read_data's `phys` param.
+int chd_shim_cdrom_read_data(chd_shim_cdrom_t* c, uint32_t lba, void* buffer, uint32_t datatype, int phys);
+int chd_shim_cdrom_read_subcode(chd_shim_cdrom_t* c, uint32_t lba, void* buffer, int phys);
+
 #ifdef __cplusplus
 }
 #endif

@@ -208,6 +208,7 @@ fn main() {
         "deps/mame/src/lib/util/path.cpp",
         "sys/minimal_osd.cpp",
         "sys/chd_shim.cpp",
+        "sys/cd_shim.cpp",
     ];
 
     for file in cpp_files.iter() {

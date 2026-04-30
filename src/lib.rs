@@ -1,3 +1,4 @@
+pub mod cd;
 pub mod codec;
 pub mod enhancements;
 pub mod hd;
@@ -23,7 +24,7 @@ pub use sys::ChdError;
 pub type Result<T> = std::result::Result<T, ChdError>;
 
 pub struct Chd {
-    inner: *mut sys::ChdFile,
+    pub(crate) inner: *mut sys::ChdFile,
     owned: bool,
 }
 
@@ -529,8 +530,8 @@ pub trait ChdDataHandler {
 }
 
 pub struct ChdCompressor {
-    inner: *mut sys::ChdFileCompressor,
-    logical_bytes: u64,
+    pub(crate) inner: *mut sys::ChdFileCompressor,
+    pub(crate) logical_bytes: u64,
 }
 
 impl ChdCompressor {
