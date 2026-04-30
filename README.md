@@ -40,6 +40,31 @@ let io = MyCustomIo::new();
 let chd = Chd::open_custom(io, false, None).expect("Failed to open");
 ```
 
+## Versioning
+
+The crate version tracks the MAME release it embeds, with a `-lN` suffix
+for libchdman-rs releases against that MAME version. For example,
+`0.287.0-l1` is the first libchdman-rs release built on MAME 0.287.0.
+
+## Testing
+
+`cargo test` runs the lib-only suite (round-trip parity, metadata,
+custom I/O). It never invokes the `chdman` binary and has no system
+dependencies beyond a C++20 toolchain.
+
+For byte-for-byte parity verification against the upstream `chdman`
+tool, enable the `chdman_compat_tests` feature locally:
+
+```bash
+cargo test --features chdman_compat_tests
+```
+
+This is **dev-local only**. The feature gates tests that shell out to
+`chdman` on `$PATH`; CI does not install chdman, so these tests never
+run there. Use them on demand during development cycles when you want
+to confirm that the output of this crate matches what chdman produces
+for the same input.
+
 ## Build Requirements
 
 - Rust 1.75+
