@@ -7,10 +7,117 @@
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use libchdman_rs::metadata::tags::{CDROM_TRACK_METADATA2_TAG, HARD_DISK_METADATA_TAG};
 use libchdman_rs::Chd;
 use tempfile::TempDir;
+
+/// Filenames inside `tests/fixtures/fixtures.zip`. Tests reference these
+/// constants rather than hard-coding the names.
+pub mod assets {
+    pub const DVD_ISO: &str = "libchdman-rs-test-dvd.iso";
+    pub const CD_ISO: &str = "libchdman-rs-test-simple.iso";
+    pub const CD_AUDIO_BIN: &str = "libchdman-rs-test-audio.bin";
+    pub const CD_DATA_BIN: &str = "libchdman-rs-test-data.bin";
+    pub const CD_CUE: &str = "libchdman-rs-cd.cue";
+}
+
+/// Returns a path to the extracted fixtures directory, extracting on first
+/// call. Subsequent calls (in this process or any other) reuse the
+/// extracted contents as long as the source zip hasn't changed.
+///
+/// Extraction target lives under `target/test-fixtures/` so it's cleaned by
+/// `cargo clean` and never pollutes the source tree.
+pub fn fixtures_dir() -> &'static Path {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(extract_fixtures).as_path()
+}
+
+/// Convenience: full path to one of the [`assets`] entries.
+pub fn fixture_path(name: &str) -> PathBuf {
+    fixtures_dir().join(name)
+}
+
+fn extract_fixtures() -> PathBuf {
+    let zip_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("fixtures.zip");
+    let zip_meta = std::fs::metadata(&zip_path).expect("fixtures.zip must exist");
+    let stamp = format!(
+        "{}-{}",
+        zip_meta.len(),
+        zip_meta
+            .modified()
+            .ok()
+            .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    );
+
+    let out_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("test-fixtures");
+    let stamp_path = out_dir.join(".stamp");
+
+    // Reuse if stamp matches.
+    if let Ok(existing) = std::fs::read_to_string(&stamp_path) {
+        if existing == stamp {
+            return out_dir;
+        }
+    }
+
+    // Extract into a sibling temp dir then atomically swap, so concurrent
+    // test processes can't observe a half-extracted directory.
+    std::fs::create_dir_all(&out_dir).expect("create test-fixtures dir");
+    let staging = out_dir.with_extension("staging");
+    let _ = std::fs::remove_dir_all(&staging);
+    std::fs::create_dir_all(&staging).expect("create staging dir");
+
+    let file = std::fs::File::open(&zip_path).expect("open fixtures.zip");
+    let mut archive = zip::ZipArchive::new(file).expect("read fixtures.zip");
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).expect("zip entry");
+        let name = entry
+            .enclosed_name()
+            .expect("safe zip entry name")
+            .to_owned();
+        let dest = staging.join(&name);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&dest).expect("mkdir entry");
+            continue;
+        }
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).expect("mkdir parent");
+        }
+        let mut out = std::fs::File::create(&dest).expect("create extracted file");
+        std::io::copy(&mut entry, &mut out).expect("extract entry");
+    }
+
+    // Swap staging → out_dir. Remove old contents first; rename-over-dir
+    // isn't portable.
+    for entry in std::fs::read_dir(&out_dir).expect("read out_dir") {
+        let p = entry.expect("dir entry").path();
+        if p == staging {
+            continue;
+        }
+        if p.is_dir() {
+            let _ = std::fs::remove_dir_all(&p);
+        } else {
+            let _ = std::fs::remove_file(&p);
+        }
+    }
+    for entry in std::fs::read_dir(&staging).expect("read staging") {
+        let p = entry.expect("staging entry").path();
+        let dest = out_dir.join(p.file_name().unwrap());
+        std::fs::rename(&p, &dest).expect("move into out_dir");
+    }
+    let _ = std::fs::remove_dir_all(&staging);
+
+    std::fs::write(&stamp_path, stamp).expect("write stamp");
+    out_dir
+}
 
 /// Owns a temp directory plus the path to a generated CHD inside it.
 pub struct Fixture {
