@@ -44,7 +44,11 @@ Version: 0.287.0-l1
   - `extract_to_writer` / `extract_to_path` stream the logical bytes back out hunk-by-hunk.
   - **Important**: `run_compression` was changed to drive the compressor to completion even on cancel (then unlink), avoiding the C++ vtable race during `~RustChdCompressor` when worker threads are still mid-flight. Documented in `streaming.rs`.
   - 8 integration tests cover compute_chs, GDDD format, codec matrix (zlib/zstd/lzma), zero-padding short reader, IDNT writes, cancel-deletes-file, and a real-ISO round-trip from the checked-in fixture.
-- [ ] **M5**: `dvd` module (`createdvd` / `extractdvd`, DVD metadata tag).
+- [x] **M5**: `dvd` module — `createdvd` / `extractdvd` parity (MAME 0.287+).
+  - `DvdCreateOptions` (default hunk `2 * 2048` and codecs `[LZMA, ZLIB, HUFF, FLAC]` — chdman's `s_default_hd_compression` reused verbatim per chdman.cpp:2263).
+  - `create_from_reader` / `create_from_iso` stream into a CHD with the empty `DVD ` metadata record. **Subtle bug found**: chdman's `chd->write_metadata(DVD_METADATA_TAG, 0, "")` invokes the std::string overload (chd.h:351), which stores `length + 1` bytes — i.e. one NUL byte, not zero bytes. The shim takes raw `(ptr, len)` so we must explicitly pass a 1-byte zero buffer. Documented inline.
+  - `extract_to_writer` / `extract_to_iso` reject non-DVD CHDs with `UnsupportedFormat`.
+  - 5 tests: real DVD ISO fixture round-trip (2.3 MiB), 2048-alignment validation, multi-codec sweep `[LZMA]`/`[ZSTD]`/`[ZLIB]`/`[NONE;4]`, extract refuses HD CHD, cancellation deletes partial output.
 - [x] **M6**: `cd` module — chdman `createcd` / `extractcd` parity.
   - **M6a CUE parser via FFI**: `chd_shim_toc_*` wraps `cdrom_file::parse_toc` (handles CUE, GDI, ISO, Nero TOC). No CUE logic reimplemented in Rust.
   - **M6b–c metadata + ECC/EDC**: `chd_shim_cd_write_metadata` calls `cdrom_file::write_metadata` (writes CHT2). ECC/EDC, audio byte-swap, track padding all happen inside MAME's `cdrom_file` and the ported `chd_cd_compressor`.
