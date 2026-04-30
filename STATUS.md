@@ -36,7 +36,14 @@ Version: 0.287.0-l1
   - `StreamingSource<R: Read>` adapts a Rust reader to MAME's pull-model `read_data`. Zero-pads past EOF, asserts monotonic offsets (verified against `chd_file_compressor::async_read` invariants), tolerates short reads from the underlying source.
   - `run_compression` drives `compress_begin`/`compress_continue`, samples the user `cancel` callback between iterations, and on cancel/error drops the compressor and unlinks the partial output file.
   - Crate-private (`pub(crate)`); the public surface comes through `hd::create_from_reader` etc. in M4+.
-- [ ] **M4**: `hd` module (`createraw` / `extractraw`, GDDD metadata).
+- [x] **M4**: `hd` module — `createhd`/`extracthd` parity with optional `createraw`-style payloads.
+  - `HdCreateOptions` (logical_size, hunk_size=4096, unit_size=512, codecs=[ZLIB,0,0,0], optional geometry, optional ident).
+  - `compute_chs` ports chdman's `guess_chs` heuristic exactly.
+  - `format_gddd` / `read_geometry` round-trip MAME's `"CYLS:%d,HEADS:%d,SECS:%d,BPS:%d"` format.
+  - `create_from_reader` / `create_from_path` stream input through `StreamingSource`, write GDDD + optional IDNT before workers spin up.
+  - `extract_to_writer` / `extract_to_path` stream the logical bytes back out hunk-by-hunk.
+  - **Important**: `run_compression` was changed to drive the compressor to completion even on cancel (then unlink), avoiding the C++ vtable race during `~RustChdCompressor` when worker threads are still mid-flight. Documented in `streaming.rs`.
+  - 8 integration tests cover compute_chs, GDDD format, codec matrix (zlib/zstd/lzma), zero-padding short reader, IDNT writes, cancel-deletes-file, and a real-ISO round-trip from the checked-in fixture.
 - [ ] **M5**: `dvd` module (`createdvd` / `extractdvd`, DVD metadata tag).
 - [ ] **M6**: `cd` module (`createcd` / `extractcd`, CUE parser via FFI shim, ECC/EDC via FFI shim, CHT2 metadata).
 - [ ] **M7**: `copy` module (re-compress with metadata pass-through).

@@ -1,5 +1,6 @@
 pub mod codec;
 pub mod enhancements;
+pub mod hd;
 pub(crate) mod streaming;
 pub mod sys;
 
@@ -572,6 +573,16 @@ impl ChdCompressor {
         } else {
             Err(err)
         }
+    }
+
+    /// Internal: the underlying compressor pointer reinterpreted as a
+    /// plain `chd_file_t*`. `chd_file_compressor` inherits from
+    /// `chd_file`, so calling chd_file shims (e.g. `write_metadata`)
+    /// against this pointer is valid; the C++ vtable dispatches
+    /// correctly.
+    #[doc(hidden)]
+    pub fn as_chd_file_ptr(&mut self) -> *mut sys::ChdFile {
+        self.inner as *mut sys::ChdFile
     }
 
     pub fn compress_begin(&mut self) {

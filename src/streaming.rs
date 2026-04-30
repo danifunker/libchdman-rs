@@ -108,25 +108,42 @@ pub(crate) fn run_compression(
     cancel: &dyn Fn() -> bool,
 ) -> Result<()> {
     compressor.compress_begin();
+    let mut cancelled = false;
+    let mut compressor_error: Option<ChdError> = None;
     loop {
-        if cancel() {
-            drop(compressor);
-            let _ = fs::remove_file(output_path);
-            return Err(ChdError::Cancelled);
+        if !cancelled && cancel() {
+            cancelled = true;
         }
         match compressor.compress_continue() {
-            Ok(CompressStep::Continue(p)) => progress(p),
+            Ok(CompressStep::Continue(p)) => {
+                if !cancelled {
+                    progress(p);
+                }
+            }
             Ok(CompressStep::Done(p)) => {
-                progress(p);
-                return Ok(());
+                if !cancelled {
+                    progress(p);
+                }
+                break;
             }
             Err(e) => {
-                drop(compressor);
-                let _ = fs::remove_file(output_path);
-                return Err(e);
+                compressor_error = Some(e);
+                break;
             }
         }
     }
+    // Compressor is now idle (workers fully drained). Safe to drop.
+    drop(compressor);
+
+    if let Some(e) = compressor_error {
+        let _ = fs::remove_file(output_path);
+        return Err(e);
+    }
+    if cancelled {
+        let _ = fs::remove_file(output_path);
+        return Err(ChdError::Cancelled);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
