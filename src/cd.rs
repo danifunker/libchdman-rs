@@ -15,8 +15,8 @@ use std::path::Path;
 
 use crate::streaming::run_compression;
 use crate::{
-    sys, Chd, ChdCompressor, ChdError, CompressionProgress, Result, CHD_CODEC_CD_LZMA,
-    CHD_CODEC_CD_ZLIB,
+    sys, Chd, ChdCompressor, ChdError, CompressionProgress, Result, CHD_CODEC_CD_FLAC,
+    CHD_CODEC_CD_LZMA, CHD_CODEC_CD_ZLIB,
 };
 
 /// CD frame layout: 2352 bytes of sector data + 96 bytes of subcode.
@@ -112,7 +112,7 @@ impl TrackInfo {
 pub struct CdCreateOptions {
     /// Hunk size in bytes. Default `19584` (8 frames * 2448).
     pub hunk_size: u32,
-    /// Codec slots. Default `[cdlz, cdzl, 0, 0]` — chdman's `s_default_cd_compression`.
+    /// Codec slots. Default `[cdlz, cdzl, cdfl, 0]` — chdman's `s_default_cd_compression`.
     pub codecs: [u32; 4],
 }
 
@@ -120,7 +120,7 @@ impl Default for CdCreateOptions {
     fn default() -> Self {
         Self {
             hunk_size: DEFAULT_HUNK_SIZE,
-            codecs: [CHD_CODEC_CD_LZMA, CHD_CODEC_CD_ZLIB, 0, 0],
+            codecs: [CHD_CODEC_CD_LZMA, CHD_CODEC_CD_ZLIB, CHD_CODEC_CD_FLAC, 0],
         }
     }
 }

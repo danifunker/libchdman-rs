@@ -146,7 +146,7 @@ extract_to_cue(
 )?;
 ```
 
-Defaults: hunk_size 19584 (8 frames × 2448 bytes), codecs `[cdlz, cdzl, 0, 0]`.
+Defaults: hunk_size 19584 (8 frames × 2448 bytes), codecs `[cdlz, cdzl, cdfl, 0]`.
 
 - [`create_from_cue`] handles CUE, GDI, ISO, and Nero TOC inputs (MAME's
   `parse_toc` dispatches on extension and content).

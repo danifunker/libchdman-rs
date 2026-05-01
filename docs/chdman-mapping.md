@@ -53,7 +53,7 @@ no flags:
 | ------ | --------- | --------- | ---------------------------- |
 | HD     | 4096      | 512       | `[zlib, 0, 0, 0]`            |
 | DVD    | 4096      | 2048      | `[lzma, zlib, huff, flac]`   |
-| CD     | 19584     | 2448      | `[cdlz, cdzl, 0, 0]`         |
+| CD     | 19584     | 2448      | `[cdlz, cdzl, cdfl, 0]`      |
 | copy   | source's  | source's  | `[0; 4]` (uncompressed)      |
 
 ## What's not exposed
