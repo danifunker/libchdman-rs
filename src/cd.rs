@@ -10,7 +10,7 @@
 
 use std::ffi::{CStr, CString};
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use crate::streaming::run_compression;
@@ -529,6 +529,141 @@ fn track_type_str(t: TrackType) -> &'static str {
         TrackType::Mode2FormMix => "MODE2_FORM_MIX",
         TrackType::Mode2Raw => "MODE2_RAW",
         TrackType::Audio => "AUDIO",
+    }
+}
+
+/// `Read + Seek` over the cooked 2048-byte MODE1 user data of a single-track CD CHD.
+///
+/// Lets ISO9660 / UDF parsers consume a CD CHD directly without an intermediate
+/// extraction to a `.iso` on disk. MAME's `cdrom_file` strips sync, header, and
+/// ECC bytes regardless of whether the CHD stored MODE1 raw (2352) or cooked
+/// (2048), so the stream length is always `track.frames * 2048`.
+///
+/// Open with [`CdCookedReader::open`]. Errors if the CHD has more than one track
+/// or if that track is not MODE1 / MODE1_RAW.
+pub struct CdCookedReader {
+    chd: Chd,
+    cdrom: *mut sys::ChdShimCdrom,
+    track_start: u32,
+    total_frames: u32,
+    pos: u64,
+    cache_frame: Option<u32>,
+    cache: [u8; COOKED_MODE1_SIZE],
+}
+
+unsafe impl Send for CdCookedReader {}
+
+impl CdCookedReader {
+    pub fn open(chd: Chd) -> Result<Self> {
+        let tracks = list_tracks(&chd)?;
+        if tracks.len() != 1 {
+            return Err(ChdError::UnsupportedFormat);
+        }
+        let track = &tracks[0];
+        match track.track_type {
+            TrackType::Mode1 | TrackType::Mode1Raw => {}
+            _ => return Err(ChdError::UnsupportedFormat),
+        }
+        let cdrom = unsafe { sys::chd_shim_cdrom_open(chd.raw_ptr()) };
+        if cdrom.is_null() {
+            return Err(ChdError::InvalidData);
+        }
+        let track_start = unsafe { sys::chd_shim_cdrom_get_track_start(cdrom, 0) };
+        Ok(Self {
+            chd,
+            cdrom,
+            track_start,
+            total_frames: track.frames,
+            pos: 0,
+            cache_frame: None,
+            cache: [0u8; COOKED_MODE1_SIZE],
+        })
+    }
+
+    pub fn len(&self) -> u64 {
+        self.total_frames as u64 * COOKED_MODE1_SIZE as u64
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.total_frames == 0
+    }
+
+    /// Recover the underlying [`Chd`].
+    pub fn into_inner(mut self) -> Chd {
+        unsafe { sys::chd_shim_cdrom_free(self.cdrom) };
+        self.cdrom = std::ptr::null_mut();
+        let chd = std::mem::take(&mut self.chd);
+        std::mem::forget(self);
+        chd
+    }
+
+    fn load_frame(&mut self, frame: u32) -> io::Result<()> {
+        if self.cache_frame == Some(frame) {
+            return Ok(());
+        }
+        let ok = unsafe {
+            sys::chd_shim_cdrom_read_data(
+                self.cdrom,
+                self.track_start + frame,
+                self.cache.as_mut_ptr() as *mut _,
+                TrackType::Mode1 as u32,
+                1,
+            )
+        };
+        if ok == 0 {
+            self.cache_frame = None;
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "chd_shim_cdrom_read_data failed",
+            ));
+        }
+        self.cache_frame = Some(frame);
+        Ok(())
+    }
+}
+
+impl Drop for CdCookedReader {
+    fn drop(&mut self) {
+        if !self.cdrom.is_null() {
+            unsafe { sys::chd_shim_cdrom_free(self.cdrom) };
+        }
+    }
+}
+
+impl Read for CdCookedReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let total = self.len();
+        if self.pos >= total || buf.is_empty() {
+            return Ok(0);
+        }
+        let remaining = total - self.pos;
+        let want = (buf.len() as u64).min(remaining) as usize;
+        let frame = (self.pos / COOKED_MODE1_SIZE as u64) as u32;
+        let off = (self.pos % COOKED_MODE1_SIZE as u64) as usize;
+        let n = want.min(COOKED_MODE1_SIZE - off);
+        self.load_frame(frame)?;
+        buf[..n].copy_from_slice(&self.cache[off..off + n]);
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+impl Seek for CdCookedReader {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        let total = self.len() as i128;
+        let new_pos: i128 = match pos {
+            SeekFrom::Start(v) => v as i128,
+            SeekFrom::End(v) => total + v as i128,
+            SeekFrom::Current(v) => self.pos as i128 + v as i128,
+        };
+        if new_pos < 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "seek before start",
+            ));
+        }
+        self.pos = new_pos as u64;
+        Ok(self.pos)
     }
 }
 

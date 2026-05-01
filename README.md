@@ -64,6 +64,36 @@ create_from_cue(
 )?;
 ```
 
+### Reading a CD CHD as a cooked ISO stream
+
+For single-track MODE1 / MODE1_RAW CD CHDs, `CdCookedReader` exposes the
+2048-byte/sector user data as a `Read + Seek` stream — useful for browsing the
+ISO9660 / UDF filesystem inside a CD CHD without extracting to a temp file
+first. Length is `track.frames * 2048`; sync, header, and ECC bytes are stripped
+by MAME regardless of whether the CHD stored the track raw or cooked.
+
+```rust
+use libchdman_rs::cd::CdCookedReader;
+use libchdman_rs::Chd;
+use std::io::{Read, Seek, SeekFrom};
+
+let chd = Chd::open("game.chd", false, None)?;
+let mut reader = CdCookedReader::open(chd)?;
+
+// Jump to the ISO9660 Primary Volume Descriptor (LBA 16, byte 16 * 2048).
+reader.seek(SeekFrom::Start(16 * 2048))?;
+let mut pvd = [0u8; 2048];
+reader.read_exact(&mut pvd)?;
+assert_eq!(&pvd[1..6], b"CD001");
+
+// Hand `reader` to any ISO9660 / UDF parser that wants Read + Seek.
+let total_bytes = reader.len();
+```
+
+`CdCookedReader::open` returns `Err(ChdError::UnsupportedFormat)` for multi-track
+or audio CHDs. Use `Chd::info().is_cd` and `cd::list_tracks` to gate before
+calling. `into_inner()` recovers the owned `Chd` if you need it back.
+
 ### Re-compressing an existing CHD
 
 ```rust
