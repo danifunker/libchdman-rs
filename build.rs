@@ -153,6 +153,9 @@ fn main() {
     flac_build.include("deps/mame/3rdparty/flac/include");
     flac_build.include("deps/mame/3rdparty/flac/src/libFLAC/include");
     flac_build.define("HAVE_CONFIG_H", None);
+    // Suppress FLAC's internal "clipping rice_parameter" debug prints to stderr.
+    // These are gated on #ifndef NDEBUG and represent internal clamping, not errors.
+    flac_build.define("NDEBUG", None);
     flac_build.define("FLAC__HAS_OGG", Some("0"));
     flac_build.define("HAVE_LROUND", Some("1"));
     flac_build.define("HAVE_INTTYPES_H", Some("1"));
