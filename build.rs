@@ -126,7 +126,7 @@ fn main() {
     ];
 
     let mut flac_build = cc::Build::new();
-    if target_arch == "x86_64" {
+    if target_arch == "x86_64" || target_arch == "x86" {
         flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_sse2.c");
         flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_ssse3.c");
         flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_sse42.c");

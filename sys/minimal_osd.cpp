@@ -250,7 +250,7 @@ bool osd_is_absolute_path(std::string const &path) noexcept {
 
 // --- Logging ---
 void osd_vprintf_error(util::format_argument_pack<char> const &args) {
-    vfprintf(stderr, util::string_format(args).c_str(), nullptr);
+    fputs(util::string_format(args).c_str(), stderr);
 }
 void osd_vprintf_warning(util::format_argument_pack<char> const &args) {}
 void osd_vprintf_info(util::format_argument_pack<char> const &args) {}
