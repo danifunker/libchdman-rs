@@ -140,6 +140,10 @@ chd_error_t chd_shim_create_file_with_parent(chd_file_t* chd, const char* filena
     return to_chd_error(((chd_file*)chd)->create(filename, logicalbytes, hunkbytes, comp, *(chd_file*)parent));
 }
 
+chd_error_t chd_shim_clone_all_metadata(chd_file_t* chd, chd_file_t* source) {
+    return to_chd_error(((chd_file*)chd)->clone_all_metadata(*(chd_file*)source));
+}
+
 void chd_shim_close(chd_file_t* chd) {
     ((chd_file*)chd)->close();
 }

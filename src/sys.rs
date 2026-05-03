@@ -111,6 +111,7 @@ extern "C" {
         compression: *const u32,
         parent: *mut ChdFile,
     ) -> ChdError;
+    pub fn chd_shim_clone_all_metadata(chd: *mut ChdFile, source: *mut ChdFile) -> ChdError;
     pub fn chd_shim_close(chd: *mut ChdFile);
 
     pub fn chd_shim_version(chd: *mut ChdFile) -> u32;

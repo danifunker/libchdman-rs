@@ -44,6 +44,12 @@ chd_error_t chd_shim_create_file(chd_file_t* chd, const char* filename, uint64_t
 // (the typical "writeable child of a compressed parent" case, matching what
 // MAME does at runtime when an emulated machine writes to a compressed CHD).
 chd_error_t chd_shim_create_file_with_parent(chd_file_t* chd, const char* filename, uint64_t logicalbytes, uint32_t hunkbytes, const uint32_t compression[4], chd_file_t* parent);
+// Copy every metadata record from `source` into `chd`. MAME's
+// `create(..., parent)` does NOT auto-propagate metadata — chdman
+// invokes this explicitly after diff creation (chdman.cpp:1939). Without
+// it, GDDD/IDNT/etc. live only on the parent and reads on the child
+// fail with MetadataNotFound.
+chd_error_t chd_shim_clone_all_metadata(chd_file_t* chd, chd_file_t* source);
 void chd_shim_close(chd_file_t* chd);
 
 // Header / Info

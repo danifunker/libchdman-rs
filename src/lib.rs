@@ -101,6 +101,13 @@ impl Chd {
     /// For the typical "writeable child of a compressed parent" runtime case
     /// (matching what MAME does when an emulated guest writes to a compressed
     /// CHD), pass `compression = [0; 4]` for an uncompressed diff.
+    ///
+    /// **Important**: MAME's `create(..., parent)` does *not* propagate
+    /// metadata (GDDD, IDNT, etc.) from the parent — chdman's
+    /// `do_create_hd` calls [`Chd::clone_all_metadata`] explicitly after
+    /// creation (chdman.cpp:1939). If you don't, the diff will read back
+    /// `MetadataNotFound` for every parent tag. Most callers should use
+    /// [`crate::hd::HdImage::open_with_diff`] which handles this for you.
     pub fn create_with_parent(
         filename: &str,
         logicalbytes: u64,
@@ -329,6 +336,19 @@ impl Chd {
 
     pub fn delete_metadata(&mut self, tag: u32, index: u32) -> Result<()> {
         let err = unsafe { sys::chd_shim_delete_metadata(self.inner, tag, index) };
+        if err == ChdError::NoError {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+
+    /// Copy every metadata record from `source` into this CHD — wraps
+    /// MAME's `chd_file::clone_all_metadata`. Required after
+    /// [`Chd::create_with_parent`] if you want the diff to see the
+    /// parent's GDDD / IDNT / etc. records.
+    pub fn clone_all_metadata(&mut self, source: &Chd) -> Result<()> {
+        let err = unsafe { sys::chd_shim_clone_all_metadata(self.inner, source.inner) };
         if err == ChdError::NoError {
             Ok(())
         } else {

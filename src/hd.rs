@@ -313,7 +313,17 @@ fn write_compressor_metadata(
 /// a fresh uncompressed child CHD, which is exactly the strategy MAME
 /// uses for runtime writes against a compressed image.
 pub struct HdImage {
+    // Field order is load-bearing: Rust drops fields in declaration
+    // order, so `chd` (the diff/child) must come before `parent` so the
+    // child is freed first. MAME's `chd_file` stores `m_parent` as a
+    // *non-owning* aliasing shared_ptr (chd.cpp:681,841), so the child
+    // would dereference a freed parent if we dropped them in the wrong
+    // order — writes return InvalidData when that happens.
     chd: Chd,
+    // Held purely for its Drop side effect — see field-order comment
+    // above. Read access not exposed.
+    #[allow(dead_code)]
+    parent: Option<Chd>,
     geometry: HdGeometry,
 }
 
@@ -324,7 +334,11 @@ impl HdImage {
     pub fn open(path: &Path) -> Result<Self> {
         let chd = Chd::open(path.to_str().ok_or(ChdError::InvalidFile)?, true, None)?;
         let geometry = read_geometry(&chd)?;
-        Ok(Self { chd, geometry })
+        Ok(Self {
+            chd,
+            parent: None,
+            geometry,
+        })
     }
 
     /// Open `parent_path` read-only and create `diff_path` as an
@@ -336,6 +350,10 @@ impl HdImage {
     /// `diff_path` is created fresh; if it already exists the call
     /// fails. To re-open an existing diff against the same parent,
     /// use [`HdImage::reopen_diff`].
+    ///
+    /// Internally clones every metadata record from the parent into the
+    /// diff (MAME's `create(..., parent)` doesn't propagate metadata —
+    /// chdman's `do_create_hd` does this clone explicitly, chdman.cpp:1939).
     pub fn open_with_diff(parent_path: &Path, diff_path: &Path) -> Result<Self> {
         let parent = Chd::open(
             parent_path.to_str().ok_or(ChdError::InvalidFile)?,
@@ -344,24 +362,30 @@ impl HdImage {
         )?;
         let logical = parent.logical_bytes();
         let hunk_bytes = parent.hunk_bytes();
-        let geometry = read_geometry(&parent)?;
-        // Allocate then drop — `create_with_parent` writes the on-disk
-        // diff and we re-open it writeable below. (MAME's chd_file
-        // create-then-use pattern works the same way.)
-        let _ = Chd::create_with_parent(
-            diff_path.to_str().ok_or(ChdError::InvalidFile)?,
-            logical,
-            hunk_bytes,
-            [0; 4],
-            &parent,
-        )?;
-        Self::reopen_diff(parent_path, diff_path).map(|mut img| {
-            img.geometry = geometry;
-            img
-        })
+        // Create + clone metadata in this scope so the writer handle is
+        // dropped (and the file flushed/closed) before we re-open it
+        // writeable below.
+        {
+            let mut diff = Chd::create_with_parent(
+                diff_path.to_str().ok_or(ChdError::InvalidFile)?,
+                logical,
+                hunk_bytes,
+                [0; 4],
+                &parent,
+            )?;
+            diff.clone_all_metadata(&parent)?;
+        }
+        // Drop the read-only parent handle here so reopen_diff can take
+        // its own; reopen_diff will keep the new parent alive for the
+        // lifetime of the returned HdImage.
+        drop(parent);
+        Self::reopen_diff(parent_path, diff_path)
     }
 
-    /// Re-open a previously-created diff against its parent.
+    /// Re-open a previously-created diff against its parent. The
+    /// returned `HdImage` keeps the parent `Chd` alive for its full
+    /// lifetime — MAME's child holds a non-owning pointer at the parent,
+    /// so dropping the parent early would dangle.
     pub fn reopen_diff(parent_path: &Path, diff_path: &Path) -> Result<Self> {
         let parent = Chd::open(
             parent_path.to_str().ok_or(ChdError::InvalidFile)?,
@@ -373,11 +397,12 @@ impl HdImage {
             true,
             Some(&parent),
         )?;
-        // Parent goes out of scope here, but MAME's chd_file holds its
-        // own reference once `open` succeeded — we don't need to keep
-        // the wrapper alive.
         let geometry = read_geometry(&chd)?;
-        Ok(Self { chd, geometry })
+        Ok(Self {
+            chd,
+            parent: Some(parent),
+            geometry,
+        })
     }
 
     /// Parsed `GDDD` geometry record (cylinders / heads / sectors /
@@ -424,10 +449,18 @@ impl HdImage {
         self.chd.write_bytes(lba * ss as u64, buf)
     }
 
-    /// Consume the wrapper and return the underlying [`Chd`] handle —
-    /// useful when you need to call lower-level APIs (`read_metadata`,
-    /// `read_hunk`, etc.) and don't want to keep the `HdImage`.
-    pub fn into_inner(self) -> Chd {
-        self.chd
+    /// Borrow the underlying [`Chd`] for lower-level reads
+    /// (`read_metadata`, `read_hunk`, etc.) without giving up the
+    /// `HdImage`. Returning a borrow rather than consuming `self` keeps
+    /// the parent (if any) alive — handing out an owned `Chd` for a
+    /// diff would dangle the moment the parent dropped.
+    pub fn as_chd(&self) -> &Chd {
+        &self.chd
+    }
+
+    /// Mutable variant of [`Self::as_chd`] for `write_metadata`,
+    /// `write_hunk`, etc.
+    pub fn as_chd_mut(&mut self) -> &mut Chd {
+        &mut self.chd
     }
 }
