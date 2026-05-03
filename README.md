@@ -160,6 +160,12 @@ is the only configuration that supports per-hunk runtime writes.
   the underlying error enum has no `InvalidParameter` variant.
 - The diff inherits logical size, hunk size, and unit size from the
   parent — you can't resize on attach.
+- For diff-mode images the `HdImage` owns the parent `Chd` handle
+  internally and drops the child first, because MAME's `chd_file`
+  stores `m_parent` as a non-owning aliasing `shared_ptr` (`chd.cpp`
+  L681,L841). Don't extract the inner `Chd` and outlive the wrapper —
+  use `as_chd()` / `as_chd_mut()` to reach lower-level APIs while the
+  `HdImage` is in scope.
 
 ### Re-compressing an existing CHD
 
