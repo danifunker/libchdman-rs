@@ -95,6 +95,40 @@ impl Chd {
         }
     }
 
+    /// Create a child CHD that diffs against `parent` — MAME's
+    /// `chd_file::create(filename, logicalbytes, hunkbytes, compression, parent)`
+    /// overload. Logical size and unit size are inherited from the parent.
+    /// For the typical "writeable child of a compressed parent" runtime case
+    /// (matching what MAME does when an emulated guest writes to a compressed
+    /// CHD), pass `compression = [0; 4]` for an uncompressed diff.
+    pub fn create_with_parent(
+        filename: &str,
+        logicalbytes: u64,
+        hunkbytes: u32,
+        compression: [u32; 4],
+        parent: &Chd,
+    ) -> Result<Self> {
+        let chd = Self::new();
+        let c_filename = CString::new(filename).map_err(|_| ChdError::InvalidFile)?;
+
+        let err = unsafe {
+            sys::chd_shim_create_file_with_parent(
+                chd.inner,
+                c_filename.as_ptr(),
+                logicalbytes,
+                hunkbytes,
+                compression.as_ptr(),
+                parent.inner,
+            )
+        };
+
+        if err == ChdError::NoError {
+            Ok(chd)
+        } else {
+            Err(err)
+        }
+    }
+
     pub fn open_custom<T: ChdIo>(io: T, writeable: bool, parent: Option<&Chd>) -> Result<Self> {
         let chd = Self::new();
         let parent_ptr = parent.map_or(ptr::null_mut(), |p| p.inner);

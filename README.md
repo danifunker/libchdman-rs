@@ -94,6 +94,73 @@ let total_bytes = reader.len();
 or audio CHDs. Use `Chd::info().is_cd` and `cd::list_tracks` to gate before
 calling. `into_inner()` recovers the owned `Chd` if you need it back.
 
+### Runtime hard-disk writes (MAME-style)
+
+`HdImage` is a block-device view over a hard-disk CHD — the same surface
+MAME's `harddisk_image_device` exposes to a running emulated machine.
+Writes to a `HdImage` go straight back into the CHD via `write_bytes`,
+which is exactly what MAME does when an emulated guest (e.g. a Macintosh
+LC) writes to its CHD hard disk.
+
+For an uncompressed CHD, open it writeable in place:
+
+```rust
+use libchdman_rs::hd::HdImage;
+use std::path::Path;
+
+let mut img = HdImage::open(Path::new("mac_lc.chd"))?;
+let ss = img.sector_size() as usize;
+
+let mut buf = vec![0u8; ss];
+img.read_sector(0, &mut buf)?;       // read MBR / boot sector
+buf[510] = 0x55;
+buf[511] = 0xAA;
+img.write_sector(0, &buf)?;          // persisted on drop
+```
+
+For a **compressed** CHD, MAME's runtime strategy is to keep the parent
+CHD untouched and route every write into a fresh uncompressed *diff*
+child. `HdImage::open_with_diff` does the same:
+
+```rust
+use libchdman_rs::hd::HdImage;
+use std::path::Path;
+
+// Parent stays read-only and untouched. Diff is uncompressed and
+// linked to the parent by SHA-1.
+let mut img = HdImage::open_with_diff(
+    Path::new("mac_lc.chd"),       // compressed parent
+    Path::new("mac_lc.diff.chd"),  // freshly created diff
+)?;
+img.write_sector(42, &[0xAB; 512])?;
+
+// Later, re-attach to the existing diff:
+let img = HdImage::reopen_diff(
+    Path::new("mac_lc.chd"),
+    Path::new("mac_lc.diff.chd"),
+)?;
+```
+
+`Chd::create_with_parent` is the lower-level primitive if you want to
+build the diff yourself (it wraps MAME's
+`chd_file::create(filename, logicalbytes, hunkbytes, compression, parent)`
+overload). Pass `compression = [0; 4]` for an uncompressed diff, which
+is the only configuration that supports per-hunk runtime writes.
+
+**Caveats**
+
+- Writes only work on uncompressed CHDs (or uncompressed diffs against a
+  compressed parent). MAME's `write_hunk` / `write_bytes` reject
+  compressed targets — this is a CHD-format constraint, not a wrapper
+  limitation.
+- `HdImage::open_with_diff` fails if the diff path already exists. Use
+  `reopen_diff` to re-attach to an existing diff.
+- `HdImage` validates `buf.len() == sector_size()` and
+  `lba < sector_count()`; both fail with `ChdError::InvalidData` since
+  the underlying error enum has no `InvalidParameter` variant.
+- The diff inherits logical size, hunk size, and unit size from the
+  parent — you can't resize on attach.
+
 ### Re-compressing an existing CHD
 
 ```rust
