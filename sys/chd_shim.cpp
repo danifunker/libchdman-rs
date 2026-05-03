@@ -134,6 +134,12 @@ chd_error_t chd_shim_create_file(chd_file_t* chd, const char* filename, uint64_t
     return to_chd_error(((chd_file*)chd)->create(filename, logicalbytes, hunkbytes, unitbytes, comp));
 }
 
+chd_error_t chd_shim_create_file_with_parent(chd_file_t* chd, const char* filename, uint64_t logicalbytes, uint32_t hunkbytes, const uint32_t compression[4], chd_file_t* parent) {
+    chd_codec_type comp[4];
+    for (int i = 0; i < 4; i++) comp[i] = compression[i];
+    return to_chd_error(((chd_file*)chd)->create(filename, logicalbytes, hunkbytes, comp, *(chd_file*)parent));
+}
+
 void chd_shim_close(chd_file_t* chd) {
     ((chd_file*)chd)->close();
 }

@@ -5,6 +5,10 @@
 //! `do_create_hd` byte-for-byte for the same input. Geometry is either
 //! supplied by the caller or derived via the same heuristic chdman uses
 //! (`guess_chs` in `chdman.cpp`).
+//!
+//! For runtime sector-level reads and writes against an existing HD CHD
+//! (the surface MAME's `harddisk_image_device` exposes to an emulated
+//! machine) see [`HdImage`].
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -294,5 +298,136 @@ fn write_compressor_metadata(
         Ok(())
     } else {
         Err(err)
+    }
+}
+
+/// Block-device view over a hard-disk CHD — the API surface MAME's
+/// `harddisk_image_device` exposes to a running emulated machine.
+/// Wraps a writeable [`Chd`] and its parsed [`HdGeometry`] (from the
+/// `GDDD` record), and routes per-sector reads/writes through
+/// `read_bytes` / `write_bytes`.
+///
+/// Use [`HdImage::open`] for an uncompressed CHD that should be modified
+/// in place. For a compressed source CHD, use [`HdImage::open_with_diff`]
+/// — it opens the source read-only as the parent and routes writes into
+/// a fresh uncompressed child CHD, which is exactly the strategy MAME
+/// uses for runtime writes against a compressed image.
+pub struct HdImage {
+    chd: Chd,
+    geometry: HdGeometry,
+}
+
+impl HdImage {
+    /// Open an uncompressed HD CHD writeable. Fails if the CHD is
+    /// compressed (MAME's `write_hunk` / `write_bytes` reject compressed
+    /// targets) or has no `GDDD` record.
+    pub fn open(path: &Path) -> Result<Self> {
+        let chd = Chd::open(path.to_str().ok_or(ChdError::InvalidFile)?, true, None)?;
+        let geometry = read_geometry(&chd)?;
+        Ok(Self { chd, geometry })
+    }
+
+    /// Open `parent_path` read-only and create `diff_path` as an
+    /// uncompressed child CHD (writes land in the diff). Mirrors what
+    /// MAME does at runtime when an emulated machine writes to a
+    /// compressed CHD: the parent stays untouched, all modifications
+    /// flow into the diff.
+    ///
+    /// `diff_path` is created fresh; if it already exists the call
+    /// fails. To re-open an existing diff against the same parent,
+    /// use [`HdImage::reopen_diff`].
+    pub fn open_with_diff(parent_path: &Path, diff_path: &Path) -> Result<Self> {
+        let parent = Chd::open(
+            parent_path.to_str().ok_or(ChdError::InvalidFile)?,
+            false,
+            None,
+        )?;
+        let logical = parent.logical_bytes();
+        let hunk_bytes = parent.hunk_bytes();
+        let geometry = read_geometry(&parent)?;
+        // Allocate then drop — `create_with_parent` writes the on-disk
+        // diff and we re-open it writeable below. (MAME's chd_file
+        // create-then-use pattern works the same way.)
+        let _ = Chd::create_with_parent(
+            diff_path.to_str().ok_or(ChdError::InvalidFile)?,
+            logical,
+            hunk_bytes,
+            [0; 4],
+            &parent,
+        )?;
+        Self::reopen_diff(parent_path, diff_path).map(|mut img| {
+            img.geometry = geometry;
+            img
+        })
+    }
+
+    /// Re-open a previously-created diff against its parent.
+    pub fn reopen_diff(parent_path: &Path, diff_path: &Path) -> Result<Self> {
+        let parent = Chd::open(
+            parent_path.to_str().ok_or(ChdError::InvalidFile)?,
+            false,
+            None,
+        )?;
+        let chd = Chd::open(
+            diff_path.to_str().ok_or(ChdError::InvalidFile)?,
+            true,
+            Some(&parent),
+        )?;
+        // Parent goes out of scope here, but MAME's chd_file holds its
+        // own reference once `open` succeeded — we don't need to keep
+        // the wrapper alive.
+        let geometry = read_geometry(&chd)?;
+        Ok(Self { chd, geometry })
+    }
+
+    /// Parsed `GDDD` geometry record (cylinders / heads / sectors /
+    /// bytes-per-sector).
+    pub fn geometry(&self) -> HdGeometry {
+        self.geometry
+    }
+
+    /// Bytes per sector, from the `GDDD` record. Read/write buffers must
+    /// match this exactly.
+    pub fn sector_size(&self) -> u32 {
+        self.geometry.sector_bytes
+    }
+
+    /// Total addressable sectors — `logical_bytes / sector_size`. Valid
+    /// LBAs are `0..sector_count()`.
+    pub fn sector_count(&self) -> u64 {
+        self.chd.logical_bytes() / u64::from(self.geometry.sector_bytes)
+    }
+
+    /// Read one sector at logical block address `lba`. `buf` must be
+    /// exactly [`sector_size`](Self::sector_size) bytes.
+    pub fn read_sector(&self, lba: u64, buf: &mut [u8]) -> Result<()> {
+        let ss = self.geometry.sector_bytes as usize;
+        if buf.len() != ss {
+            return Err(ChdError::InvalidData);
+        }
+        if lba >= self.sector_count() {
+            return Err(ChdError::InvalidData);
+        }
+        self.chd.read_bytes(lba * ss as u64, buf)
+    }
+
+    /// Write one sector at `lba`. `buf` must be exactly
+    /// [`sector_size`](Self::sector_size) bytes.
+    pub fn write_sector(&mut self, lba: u64, buf: &[u8]) -> Result<()> {
+        let ss = self.geometry.sector_bytes as usize;
+        if buf.len() != ss {
+            return Err(ChdError::InvalidData);
+        }
+        if lba >= self.sector_count() {
+            return Err(ChdError::InvalidData);
+        }
+        self.chd.write_bytes(lba * ss as u64, buf)
+    }
+
+    /// Consume the wrapper and return the underlying [`Chd`] handle —
+    /// useful when you need to call lower-level APIs (`read_metadata`,
+    /// `read_hunk`, etc.) and don't want to keep the `HdImage`.
+    pub fn into_inner(self) -> Chd {
+        self.chd
     }
 }

@@ -103,6 +103,14 @@ extern "C" {
         unitbytes: u32,
         compression: *const u32,
     ) -> ChdError;
+    pub fn chd_shim_create_file_with_parent(
+        chd: *mut ChdFile,
+        filename: *const c_char,
+        logicalbytes: u64,
+        hunkbytes: u32,
+        compression: *const u32,
+        parent: *mut ChdFile,
+    ) -> ChdError;
     pub fn chd_shim_close(chd: *mut ChdFile);
 
     pub fn chd_shim_version(chd: *mut ChdFile) -> u32;

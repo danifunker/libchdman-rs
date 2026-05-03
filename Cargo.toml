@@ -1,6 +1,6 @@
 [package]
 name = "libchdman-rs"
-version = "0.287.0-l2"
+version = "0.287.0-l3"
 edition = "2021"
 authors = ["danifunker"]
 description = "Rust wrapper for MAME CHD core"

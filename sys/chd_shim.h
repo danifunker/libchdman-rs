@@ -37,6 +37,13 @@ void chd_shim_free(chd_file_t* chd);
 chd_error_t chd_shim_open_file(chd_file_t* chd, const char* filename, int writeable, chd_file_t* parent);
 chd_error_t chd_shim_open_custom(chd_file_t* chd, chd_rust_io_t handle, chd_rust_io_ops_t ops, int writeable, chd_file_t* parent);
 chd_error_t chd_shim_create_file(chd_file_t* chd, const char* filename, uint64_t logicalbytes, uint32_t hunkbytes, uint32_t unitbytes, const uint32_t compression[4]);
+// Create a child CHD that diffs against `parent`. Unit size, logical size,
+// and (for compressed parents) hunk size are inherited from the parent —
+// MAME's create(filename, logicalbytes, hunkbytes, compression, parent)
+// overload (chd.h:326). Pass compression=[0,0,0,0] for an uncompressed diff
+// (the typical "writeable child of a compressed parent" case, matching what
+// MAME does at runtime when an emulated machine writes to a compressed CHD).
+chd_error_t chd_shim_create_file_with_parent(chd_file_t* chd, const char* filename, uint64_t logicalbytes, uint32_t hunkbytes, const uint32_t compression[4], chd_file_t* parent);
 void chd_shim_close(chd_file_t* chd);
 
 // Header / Info
