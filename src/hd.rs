@@ -5,6 +5,10 @@
 //! `do_create_hd` byte-for-byte for the same input. Geometry is either
 //! supplied by the caller or derived via the same heuristic chdman uses
 //! (`guess_chs` in `chdman.cpp`).
+//!
+//! For runtime sector-level reads and writes against an existing HD CHD
+//! (the surface MAME's `harddisk_image_device` exposes to an emulated
+//! machine) see [`HdImage`].
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -376,14 +380,20 @@ impl HdImage {
         Ok(Self { chd, geometry })
     }
 
+    /// Parsed `GDDD` geometry record (cylinders / heads / sectors /
+    /// bytes-per-sector).
     pub fn geometry(&self) -> HdGeometry {
         self.geometry
     }
 
+    /// Bytes per sector, from the `GDDD` record. Read/write buffers must
+    /// match this exactly.
     pub fn sector_size(&self) -> u32 {
         self.geometry.sector_bytes
     }
 
+    /// Total addressable sectors — `logical_bytes / sector_size`. Valid
+    /// LBAs are `0..sector_count()`.
     pub fn sector_count(&self) -> u64 {
         self.chd.logical_bytes() / u64::from(self.geometry.sector_bytes)
     }
@@ -414,7 +424,9 @@ impl HdImage {
         self.chd.write_bytes(lba * ss as u64, buf)
     }
 
-    /// Drop the image, returning the underlying [`Chd`] handle.
+    /// Consume the wrapper and return the underlying [`Chd`] handle —
+    /// useful when you need to call lower-level APIs (`read_metadata`,
+    /// `read_hunk`, etc.) and don't want to keep the `HdImage`.
     pub fn into_inner(self) -> Chd {
         self.chd
     }
