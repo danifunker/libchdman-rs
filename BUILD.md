@@ -2,25 +2,37 @@
 
 ## Cutting a new release
 
-libchdman-rs versions track MAME's roughly bi-monthly release cadence. To
-cut a new release that includes pre-built archives:
+libchdman-rs versions track MAME's roughly bi-monthly release cadence.
+The release flow is **dispatch-then-tag**: no tag is pushed manually.
+The workflow only creates the tag after every build cell succeeds, so
+a failed build leaves no tag and no release behind.
 
 1. Update the MAME submodule (`deps/mame`) to the new MAME version.
 2. Bump `version` in `Cargo.toml`. The version becomes the release tag,
    so use something parseable like `0.287.0-l3` (the `-l3` suffix is the
    libchdman-rs revision against that MAME version).
 3. Update notes/changelog with anything that affects the wrapper.
-4. Commit and tag:
+4. Commit and push the branch (no tag yet):
    ```bash
    git commit -am "Bump to 0.287.0-l3 (MAME 0.287)"
-   git tag v0.287.0-l3
-   git push origin main --tags
+   git push origin main
    ```
-5. The `release-prebuilt.yml` workflow fires on the tag. It builds all
-   target/glibc combinations in parallel (~20 minutes) and uploads them
-   as release assets.
+5. In the GitHub UI, go to **Actions → "Build prebuilt static archives"
+   → Run workflow**, select the branch, and enter the tag name
+   (e.g. `v0.287.0-l3`). The workflow:
+   - **Preflight** validates: tag starts with `v`, `Cargo.toml` version
+     matches the tag, and the tag/release doesn't already exist. Bails
+     out fast if any of those fail.
+   - **Build** runs all 10 target/glibc cells in parallel (~20 min).
+   - **Release** runs only if every build cell succeeded; it creates
+     the tag at the current commit and publishes the release with all
+     assets attached.
 6. After the workflow finishes, verify the release page contains every
    expected asset (see below).
+
+If the workflow fails before the release job, nothing is published and
+no tag is created. Fix the issue, push the fix to the branch, and run
+the workflow again with the same tag input.
 
 ## What the workflow builds
 

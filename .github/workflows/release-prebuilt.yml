@@ -1,19 +1,56 @@
 name: Build prebuilt static archives
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to publish to (must already exist or be created by this run)'
+        description: 'Tag to create on successful build (e.g. v0.287.0-l4). Must NOT already exist; must match Cargo.toml version.'
         required: true
 
 permissions:
   contents: write
 
 jobs:
+  preflight:
+    name: Preflight checks
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate tag and version
+        id: check
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$INPUT_TAG"
+          if [[ ! "$tag" =~ ^v ]]; then
+            echo "FAIL: tag '$tag' must start with 'v'"
+            exit 1
+          fi
+          expected_version="${tag#v}"
+          actual_version=$(grep -E '^version = ' Cargo.toml | head -1 | sed -E 's/version = "(.*)"/\1/')
+          if [[ "$expected_version" != "$actual_version" ]]; then
+            echo "FAIL: Cargo.toml version is '$actual_version' but requested tag is '$tag' (expected version '$expected_version')"
+            echo "Bump Cargo.toml to match the tag you intend to publish."
+            exit 1
+          fi
+          if git ls-remote --tags --exit-code origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "FAIL: tag '$tag' already exists on origin"
+            echo "If you need to rebuild this release, delete the tag and release first, or use a new tag."
+            exit 1
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "FAIL: GitHub Release '$tag' already exists"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "OK: tag '$tag' is free; Cargo.toml version matches."
+
   build-linux:
+    needs: preflight
     name: Linux ${{ matrix.target }} / ${{ matrix.glibc }}
     runs-on: ${{ matrix.runs_on }}
     strategy:
@@ -87,6 +124,7 @@ jobs:
           path: out/*
 
   build-macos:
+    needs: preflight
     name: macOS ${{ matrix.target }}
     runs-on: ${{ matrix.runs_on }}
     strategy:
@@ -129,6 +167,7 @@ jobs:
           path: out/*
 
   build-windows:
+    needs: preflight
     name: Windows ${{ matrix.target }}
     runs-on: windows-latest
     strategy:
@@ -175,10 +214,10 @@ jobs:
           path: out/*
 
   release:
-    needs: [build-linux, build-macos, build-windows]
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    needs: [preflight, build-linux, build-macos, build-windows]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v7
         with:
           path: artifacts
@@ -187,9 +226,11 @@ jobs:
           mkdir -p release-assets
           find artifacts -type f \( -name '*.a' -o -name '*.lib' -o -name '*.sha256' \) -exec cp {} release-assets/ \;
           ls -la release-assets/
-      - uses: softprops/action-gh-release@v2
+      - name: Create release (and tag at this commit)
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ needs.preflight.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: release-assets/*
           fail_on_unmatched_files: true
         env:
