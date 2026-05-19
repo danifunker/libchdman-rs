@@ -1,4 +1,29 @@
 fn main() {
+    println!("cargo:rerun-if-env-changed=LIBCHDMAN_FORCE_SOURCE");
+    println!("cargo:rerun-if-env-changed=LIBCHDMAN_PREBUILT_FALLBACK");
+    println!("cargo:rerun-if-env-changed=LIBCHDMAN_GLIBC");
+    println!("cargo:rerun-if-env-changed=LIBCHDMAN_PREBUILT_LOCAL_ARCHIVE");
+
+    let use_prebuilt =
+        cfg!(feature = "prebuilt") && std::env::var("LIBCHDMAN_FORCE_SOURCE").is_err();
+
+    if use_prebuilt {
+        match try_use_prebuilt() {
+            Ok(()) => return,
+            Err(e) if std::env::var("LIBCHDMAN_PREBUILT_FALLBACK").is_ok() => {
+                println!("cargo:warning=Prebuilt fetch failed ({e}); compiling from source.");
+            }
+            Err(e) => panic!(
+                "Prebuilt archive fetch failed: {e}.\n\
+                 Set LIBCHDMAN_PREBUILT_FALLBACK=1 to compile from source instead, \
+                 or LIBCHDMAN_FORCE_SOURCE=1 to always compile from source."
+            ),
+        }
+    }
+    build_from_source();
+}
+
+fn build_from_source() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
 
@@ -267,4 +292,225 @@ fn main() {
     println!("cargo:rerun-if-changed=sys/chd_shim.cpp");
     println!("cargo:rerun-if-changed=sys/minimal_osd.cpp");
     println!("cargo:rerun-if-changed=build.rs");
+}
+
+#[cfg(not(feature = "prebuilt"))]
+fn try_use_prebuilt() -> Result<(), String> {
+    unreachable!("try_use_prebuilt called without the `prebuilt` feature")
+}
+
+#[cfg(feature = "prebuilt")]
+fn try_use_prebuilt() -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    use std::fs;
+    use std::path::PathBuf;
+
+    let target = std::env::var("TARGET").map_err(|_| "TARGET env var missing".to_string())?;
+    let out_dir =
+        PathBuf::from(std::env::var("OUT_DIR").map_err(|_| "OUT_DIR env var missing".to_string())?);
+    let version = env!("CARGO_PKG_VERSION");
+
+    let is_windows_msvc = target.contains("pc-windows-msvc");
+    let is_linux_gnu = target.contains("unknown-linux-gnu");
+    let is_apple = target.contains("apple-darwin");
+
+    // CI / dogfooding hook: when set, skip download/verify and link the
+    // archive at this path as if it were the prebuilt asset. The release
+    // workflow uses this to exercise the prebuilt link path against the
+    // archive it just merged, before the asset is uploaded.
+    if let Ok(local) = std::env::var("LIBCHDMAN_PREBUILT_LOCAL_ARCHIVE") {
+        let src = PathBuf::from(&local);
+        let src_bytes = fs::read(&src)
+            .map_err(|e| format!("read LIBCHDMAN_PREBUILT_LOCAL_ARCHIVE {local}: {e}"))?;
+        let dst_name = if is_windows_msvc {
+            "chdman_rs.lib"
+        } else {
+            "libchdman_rs.a"
+        };
+        let dst = out_dir.join(dst_name);
+        fs::write(&dst, &src_bytes).map_err(|e| format!("copy local archive: {e}"))?;
+        println!("cargo:rustc-link-search=native={}", out_dir.display());
+        println!("cargo:rustc-link-lib=static=chdman_rs");
+        if is_apple {
+            println!("cargo:rustc-link-lib=c++");
+        } else if is_linux_gnu {
+            println!("cargo:rustc-link-lib=stdc++");
+        }
+        println!("cargo:warning=libchdman-rs: linked LOCAL prebuilt archive {local}");
+        return Ok(());
+    }
+
+    if !(is_windows_msvc || is_linux_gnu || is_apple) {
+        return Err(format!(
+            "no prebuilt archive published for target `{target}` (supported: \
+             *-unknown-linux-gnu, *-apple-darwin, *-pc-windows-msvc)"
+        ));
+    }
+
+    let ext = if is_windows_msvc { "lib" } else { "a" };
+
+    let glibc_suffix = if is_linux_gnu {
+        let raw = std::env::var("LIBCHDMAN_GLIBC").unwrap_or_else(|_| "auto".into());
+        let chosen = match raw.as_str() {
+            "auto" | "" => "2.35",
+            "2.31" | "2.35" | "2.39" => raw.as_str(),
+            other => {
+                return Err(format!(
+                    "LIBCHDMAN_GLIBC={other} not recognized (expected 2.31, 2.35, 2.39, or auto)"
+                ));
+            }
+        };
+        format!("-glibc{}", chosen)
+    } else {
+        String::new()
+    };
+
+    let asset = format!("libchdman_rs-{target}{glibc_suffix}.{ext}");
+    let base_url = format!(
+        "https://github.com/danifunker/libchdman-rs/releases/download/v{version}/{asset}"
+    );
+    let sha_url = format!("{base_url}.sha256");
+
+    let cache_dir = cache_dir().join(version);
+    fs::create_dir_all(&cache_dir).map_err(|e| format!("create cache dir: {e}"))?;
+    let cached_archive = cache_dir.join(&asset);
+    let cached_sha = cache_dir.join(format!("{asset}.sha256"));
+
+    let expected_sha = match fs::read_to_string(&cached_sha) {
+        Ok(s) => parse_sha256_line(&s, &asset),
+        Err(_) => None,
+    };
+
+    let archive_bytes = if let (Some(expected), Ok(bytes)) =
+        (expected_sha.as_deref(), fs::read(&cached_archive))
+    {
+        if hex::encode(Sha256::digest(&bytes)) == expected {
+            println!("cargo:warning=libchdman-rs: using cached prebuilt {asset}");
+            bytes
+        } else {
+            download_with_sha(&base_url, &sha_url, &asset, &cached_archive, &cached_sha)?
+        }
+    } else {
+        download_with_sha(&base_url, &sha_url, &asset, &cached_archive, &cached_sha)?
+    };
+
+    let dst_name = if is_windows_msvc {
+        "chdman_rs.lib".to_string()
+    } else {
+        "libchdman_rs.a".to_string()
+    };
+    let dst = out_dir.join(&dst_name);
+    fs::write(&dst, &archive_bytes).map_err(|e| format!("write archive to OUT_DIR: {e}"))?;
+
+    println!("cargo:rustc-link-search=native={}", out_dir.display());
+    println!("cargo:rustc-link-lib=static=chdman_rs");
+    if is_apple {
+        println!("cargo:rustc-link-lib=c++");
+    } else if is_linux_gnu {
+        println!("cargo:rustc-link-lib=stdc++");
+    }
+    println!("cargo:warning=libchdman-rs: linked prebuilt archive {asset}");
+    Ok(())
+}
+
+#[cfg(feature = "prebuilt")]
+fn parse_sha256_line(content: &str, asset: &str) -> Option<String> {
+    for line in content.lines() {
+        let mut parts = line.split_whitespace();
+        let hex_part = parts.next()?;
+        let name_part = parts.next().unwrap_or("");
+        if name_part.is_empty() || name_part == asset || name_part.trim_start_matches('*') == asset
+        {
+            if hex_part.len() == 64 && hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Some(hex_part.to_ascii_lowercase());
+            }
+        }
+    }
+    None
+}
+
+#[cfg(feature = "prebuilt")]
+fn download_with_sha(
+    archive_url: &str,
+    sha_url: &str,
+    asset: &str,
+    cached_archive: &std::path::Path,
+    cached_sha: &std::path::Path,
+) -> Result<Vec<u8>, String> {
+    use sha2::{Digest, Sha256};
+    use std::fs;
+
+    let sha_text = http_get_text(sha_url)?;
+    let expected = parse_sha256_line(&sha_text, asset)
+        .ok_or_else(|| format!("could not parse sha256 line from {sha_url}"))?;
+
+    let bytes = http_get_bytes(archive_url)?;
+    let got = hex::encode(Sha256::digest(&bytes));
+    if got != expected {
+        return Err(format!(
+            "sha256 mismatch for {asset}: expected {expected}, got {got}"
+        ));
+    }
+
+    fs::write(cached_archive, &bytes).map_err(|e| format!("cache archive: {e}"))?;
+    fs::write(cached_sha, sha_text.as_bytes()).map_err(|e| format!("cache sha: {e}"))?;
+    Ok(bytes)
+}
+
+#[cfg(feature = "prebuilt")]
+fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    use std::time::Duration;
+    let mut last_err = String::new();
+    for attempt in 0..3u32 {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_secs(1u64 << (attempt - 1)));
+        }
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(30))
+            .timeout(Duration::from_secs(300))
+            .build();
+        match agent.get(url).call() {
+            Ok(resp) => {
+                let mut buf = Vec::new();
+                if let Err(e) = resp.into_reader().read_to_end(&mut buf) {
+                    last_err = format!("read body: {e}");
+                    continue;
+                }
+                return Ok(buf);
+            }
+            Err(e) => last_err = format!("request: {e}"),
+        }
+    }
+    Err(format!("GET {url} failed after 3 attempts: {last_err}"))
+}
+
+#[cfg(feature = "prebuilt")]
+fn http_get_text(url: &str) -> Result<String, String> {
+    let bytes = http_get_bytes(url)?;
+    String::from_utf8(bytes).map_err(|e| format!("non-utf8 response from {url}: {e}"))
+}
+
+#[cfg(feature = "prebuilt")]
+fn cache_dir() -> std::path::PathBuf {
+    use std::path::PathBuf;
+    if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
+        if !xdg.is_empty() {
+            return PathBuf::from(xdg).join("libchdman-rs");
+        }
+    }
+    if cfg!(target_os = "windows") {
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            return PathBuf::from(local).join("libchdman-rs");
+        }
+    }
+    if cfg!(target_os = "macos") {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home).join("Library/Caches/libchdman-rs");
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return PathBuf::from(home).join(".cache/libchdman-rs");
+    }
+    std::env::temp_dir().join("libchdman-rs")
 }
