@@ -8,6 +8,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # CI validates the source build path. The `prebuilt` feature (enabled
+  # via --all-features) would otherwise try to download a release asset
+  # for the current crate version, which doesn't exist until the release
+  # workflow has run for the corresponding tag.
+  LIBCHDMAN_FORCE_SOURCE: '1'
 
 jobs:
   test:

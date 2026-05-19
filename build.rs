@@ -417,11 +417,11 @@ fn parse_sha256_line(content: &str, asset: &str) -> Option<String> {
         let mut parts = line.split_whitespace();
         let hex_part = parts.next()?;
         let name_part = parts.next().unwrap_or("");
-        if name_part.is_empty() || name_part == asset || name_part.trim_start_matches('*') == asset
-        {
-            if hex_part.len() == 64 && hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
-                return Some(hex_part.to_ascii_lowercase());
-            }
+        let name_matches = name_part.is_empty()
+            || name_part == asset
+            || name_part.trim_start_matches('*') == asset;
+        if name_matches && hex_part.len() == 64 && hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Some(hex_part.to_ascii_lowercase());
         }
     }
     None
