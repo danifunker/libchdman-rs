@@ -366,9 +366,8 @@ fn try_use_prebuilt() -> Result<(), String> {
     };
 
     let asset = format!("libchdman_rs-{target}{glibc_suffix}.{ext}");
-    let base_url = format!(
-        "https://github.com/danifunker/libchdman-rs/releases/download/v{version}/{asset}"
-    );
+    let base_url =
+        format!("https://github.com/danifunker/libchdman-rs/releases/download/v{version}/{asset}");
     let sha_url = format!("{base_url}.sha256");
 
     let cache_dir = cache_dir().join(version);
@@ -381,18 +380,17 @@ fn try_use_prebuilt() -> Result<(), String> {
         Err(_) => None,
     };
 
-    let archive_bytes = if let (Some(expected), Ok(bytes)) =
-        (expected_sha.as_deref(), fs::read(&cached_archive))
-    {
-        if hex::encode(Sha256::digest(&bytes)) == expected {
-            println!("cargo:warning=libchdman-rs: using cached prebuilt {asset}");
-            bytes
+    let archive_bytes =
+        if let (Some(expected), Ok(bytes)) = (expected_sha.as_deref(), fs::read(&cached_archive)) {
+            if hex::encode(Sha256::digest(&bytes)) == expected {
+                println!("cargo:warning=libchdman-rs: using cached prebuilt {asset}");
+                bytes
+            } else {
+                download_with_sha(&base_url, &sha_url, &asset, &cached_archive, &cached_sha)?
+            }
         } else {
             download_with_sha(&base_url, &sha_url, &asset, &cached_archive, &cached_sha)?
-        }
-    } else {
-        download_with_sha(&base_url, &sha_url, &asset, &cached_archive, &cached_sha)?
-    };
+        };
 
     let dst_name = if is_windows_msvc {
         "chdman_rs.lib".to_string()
