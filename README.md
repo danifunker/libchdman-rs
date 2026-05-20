@@ -202,6 +202,77 @@ let io = MyCustomIo::new();
 let chd = Chd::open_custom(io, false, None).expect("Failed to open");
 ```
 
+## Pre-built static archives (faster CI builds)
+
+libchdman-rs wraps MAME's C++ core via the `cc` crate, which can take
+several minutes on cold builds. For CI and other build-time-sensitive
+consumers, every tagged release ships pre-built static archives that
+skip the C++ compile entirely.
+
+Enable the `prebuilt` feature in your `Cargo.toml`:
+
+```toml
+libchdman-rs = { version = "0.287", features = ["prebuilt"] }
+```
+
+On `cargo build`, the build script downloads the archive matching your
+target triple from this repo's GitHub Releases, verifies its sha256, and
+links it statically.
+
+### Supported targets
+
+| Triple                              | Notes                                  |
+|-------------------------------------|----------------------------------------|
+| `x86_64-unknown-linux-gnu`          | Three glibc floors (see below)         |
+| `aarch64-unknown-linux-gnu`         | Three glibc floors                     |
+| `x86_64-apple-darwin`               | `MACOSX_DEPLOYMENT_TARGET=10.13`       |
+| `aarch64-apple-darwin`              | `MACOSX_DEPLOYMENT_TARGET=10.13`       |
+| `x86_64-pc-windows-msvc`            |                                        |
+| `i686-pc-windows-msvc`              |                                        |
+
+Targets not in the list (musl, BSD, anything exotic) fall back to source
+build automatically when `LIBCHDMAN_PREBUILT_FALLBACK=1` is set; otherwise
+the build will fail with a clear message.
+
+### Linux: picking a glibc floor
+
+Linux archives are built against three glibc versions, and you choose
+which floor your binary should require:
+
+| `LIBCHDMAN_GLIBC` | glibc floor | Built on Ubuntu | Works on (examples)               |
+|-------------------|-------------|-----------------|-----------------------------------|
+| `2.31`            | 2.31        | 20.04           | Debian 11, RHEL 8, older distros  |
+| `2.35` (default)  | 2.35        | 22.04           | Debian 12, RHEL 9, modern distros |
+| `2.39`            | 2.39        | 24.04           | Newest distros only               |
+
+Set `LIBCHDMAN_GLIBC=2.31` in your CI environment if you ship a binary
+that needs to run on older Linux distributions:
+
+```yaml
+env:
+  LIBCHDMAN_GLIBC: '2.31'
+```
+
+If unset (or `auto`), the build script picks `2.35` — the modern sweet
+spot. macOS and Windows builds ignore this variable.
+
+### Escape hatches
+
+| Env var                          | Effect                                                  |
+|----------------------------------|---------------------------------------------------------|
+| `LIBCHDMAN_FORCE_SOURCE=1`       | Always compile from source, even with `prebuilt` on     |
+| `LIBCHDMAN_PREBUILT_FALLBACK=1`  | Silently fall back to source if the download fails      |
+
+### Caching
+
+The downloaded archive is cached under:
+
+- Linux: `~/.cache/libchdman-rs/<version>/` (or `$XDG_CACHE_HOME/libchdman-rs/<version>/`)
+- macOS: `~/Library/Caches/libchdman-rs/<version>/`
+- Windows: `%LOCALAPPDATA%\libchdman-rs\<version>\`
+
+`cargo clean` doesn't invalidate the cache; bumping the crate version does.
+
 ## Versioning
 
 The crate version tracks the MAME release it embeds, with a `-lN` suffix

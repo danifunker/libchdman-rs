@@ -1,6 +1,6 @@
 [package]
 name = "libchdman-rs"
-version = "0.287.0-l3"
+version = "0.287.0-l4"
 edition = "2021"
 authors = ["danifunker"]
 description = "Rust wrapper for MAME CHD core"
@@ -14,9 +14,28 @@ zip = "8"
 
 [build-dependencies]
 cc = { version = "1.0", features = ["parallel"] }
+ureq = { version = "2", default-features = false, features = ["tls"], optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
 
 [features]
 # Dev-local only. Enables tests that shell out to a `chdman` binary on
 # $PATH for cross-tool byte-for-byte parity verification. CI does not
 # install chdman; run locally with `cargo test --features chdman_compat_tests`.
 chdman_compat_tests = []
+
+# Download a pre-built static archive matching the current target triple
+# from GitHub Releases instead of compiling MAME's C++ from source.
+#
+# When this feature is on:
+#   - build.rs fetches https://github.com/danifunker/libchdman-rs/releases/download/
+#       v<crate-version>/libchdman_rs-<triple>[-<glibc-tag>].<ext>
+#   - hash is verified against the sibling .sha256 file
+#   - failure aborts the build by default; set LIBCHDMAN_PREBUILT_FALLBACK=1
+#     to silently fall back to source compilation
+#   - set LIBCHDMAN_FORCE_SOURCE=1 to skip the download path entirely
+#   - set LIBCHDMAN_GLIBC=<floor> (Linux only) to choose which glibc floor
+#     the prebuilt archive was built against. Accepts the bare value
+#     (e.g. "2.31") or "auto" (default — picks glibc2.35, the modern
+#     sweet spot for Debian 12 / Ubuntu 22.04 / RHEL 9)
+prebuilt = ["dep:ureq", "dep:sha2", "dep:hex"]
