@@ -71,8 +71,12 @@ list_symbols() {
 
 symbols=$(list_symbols || true)
 missing=0
+# Use a herestring rather than `echo | grep`: under `set -o pipefail`, grep -q
+# closing its stdin early after a match triggers SIGPIPE on echo, which
+# pipefail then propagates as a pipeline failure — causing every symbol to
+# be reported missing on hosts that flush small enough for the race.
 for sym in "${required_symbols[@]}"; do
-  if ! echo "$symbols" | grep -q "$sym"; then
+  if ! grep -q -- "$sym" <<< "$symbols"; then
     echo "FAIL: missing required symbol: $sym"
     missing=1
   fi

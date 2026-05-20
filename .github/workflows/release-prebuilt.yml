@@ -181,7 +181,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - uses: ilammy/msvc-dev-cmd@v1
+      # Pinned to the latest tagged release (v1.13.0, 2024-01-01). Note:
+      # this action still ships with `using: node20`; until upstream cuts a
+      # Node 24 release, GH Actions will emit a deprecation warning.
+      - uses: ilammy/msvc-dev-cmd@v1.13.0
         with:
           arch: ${{ matrix.target == 'i686-pc-windows-msvc' && 'x86' || 'x64' }}
       - run: cargo build --release --target ${{ matrix.target }}
@@ -196,7 +199,10 @@ jobs:
           for f in "$builddir"/*.lib; do
             inputs+=("$f")
           done
-          lib.exe //OUT:"out/$name" "${inputs[@]}"
+          # lib.exe accepts /OUT:... and -OUT:... interchangeably; we use the
+          # dash form so MSYS bash doesn't mangle the leading slash into a
+          # Windows path. Same applies if more flags are added later.
+          lib.exe -OUT:"out/$name" "${inputs[@]}"
           (cd out && sha256sum "$name" > "$name.sha256")
       - name: Validate archive
         shell: bash
