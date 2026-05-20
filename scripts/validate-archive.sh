@@ -59,7 +59,10 @@ list_symbols() {
       || nm "$archive"
   else
     if command -v dumpbin >/dev/null 2>&1; then
-      dumpbin /symbols "$archive"
+      # Use the dash form. Under MSYS bash, a leading-slash arg like
+      # `/symbols` is path-converted into a Windows path and dumpbin
+      # then sees garbage instead of the option.
+      dumpbin -symbols "$archive"
     elif command -v llvm-nm >/dev/null 2>&1; then
       llvm-nm "$archive"
     else
