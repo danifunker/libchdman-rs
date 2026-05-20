@@ -17,6 +17,55 @@ For the full API surface and a chdman-flag-by-flag mapping see
 [`docs/format-modules.md`](docs/format-modules.md) and
 [`docs/chdman-mapping.md`](docs/chdman-mapping.md).
 
+## Choosing between crates.io and git
+
+libchdman-rs is published to crates.io in a **slim form** that contains
+only the Rust wrapper code. The ~900 MB MAME C++ source is **not**
+shipped in the crates.io tarball — published crates can't be that
+large, and most consumers don't need to compile MAME from source.
+
+### Use crates.io (recommended for most consumers)
+
+If you don't need to compile MAME from source — and you almost never do
+— depend on the crates.io version and enable the `prebuilt` feature:
+
+```toml
+[dependencies]
+libchdman-rs = { version = "0.287", features = ["prebuilt"] }
+```
+
+The `prebuilt` feature downloads a pre-built static archive matching
+your target triple from this crate's GitHub Releases. See the
+["Pre-built static archives"](#pre-built-static-archives-faster-ci-builds)
+section below for supported triples, glibc floors, and escape hatches.
+
+Without `features = ["prebuilt"]`, the build script aborts with an
+actionable message — the crates.io tarball has no C++ source for a
+local build to consume.
+
+### Use the git dependency (for source builds)
+
+If you need to compile MAME's C++ from source — debugging the wrapped
+C++, custom MAME patches, or a target triple not covered by the
+prebuilt matrix — depend on the git repo:
+
+```toml
+[dependencies]
+libchdman-rs = { git = "https://github.com/danifunker/libchdman-rs", tag = "v0.287.0-l6" }
+```
+
+The git dependency includes the full vendored MAME source tree
+(~1 GB), so cold builds are slow.
+
+### Summary
+
+| Need                                  | Use this                          |
+|---------------------------------------|-----------------------------------|
+| Fast CI, prebuilt target              | crates.io + `prebuilt`            |
+| Custom MAME modifications             | git + source build                |
+| Unusual target not in prebuilt matrix | git + source build                |
+| Reproducible historic builds          | git, pinned by tag                |
+
 ## Usage
 
 ### Opening a CHD

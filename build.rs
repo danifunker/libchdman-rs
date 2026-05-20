@@ -24,6 +24,36 @@ fn main() {
 }
 
 fn build_from_source() {
+    // Crates.io ships a slim tarball with only the Rust wrapper; the
+    // ~900 MB MAME C++ source isn't included. If we got here from that
+    // tarball, fail loudly with an actionable message instead of erroring
+    // hundreds of lines deep in `cc-rs` with "file not found".
+    let deps_marker = std::path::Path::new("deps/mame/src/lib/util/chd.cpp");
+    if !deps_marker.exists() {
+        let v = env!("CARGO_PKG_VERSION");
+        let msg = format!(
+            "
+libchdman-rs source build requires MAME's vendored C++ source, which is NOT
+shipped in the crates.io package.
+
+Use one of:
+
+  1. Enable the `prebuilt` feature (recommended — downloads a pre-built
+     static archive matching your target triple from GitHub Releases):
+
+         libchdman-rs = {{ version = \"{v}\", features = [\"prebuilt\"] }}
+
+  2. Depend on this crate via its git repo for source builds (full MAME
+     source tree, ~1 GB; cold builds are slow):
+
+         libchdman-rs = {{ git = \"https://github.com/danifunker/libchdman-rs\", tag = \"v{v}\" }}
+
+See the README's \"Choosing between crates.io and git\" section.
+"
+        );
+        panic!("{msg}");
+    }
+
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
 

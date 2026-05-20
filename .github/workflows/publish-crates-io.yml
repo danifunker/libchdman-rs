@@ -1,0 +1,112 @@
+name: Publish to crates.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (must already exist as a GitHub Release with prebuilt assets)'
+        required: true
+      dry_run:
+        description: 'Validate only — do not publish'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Preflight (release exists, slim tarball)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify Cargo.toml version matches tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="$INPUT_TAG"
+          tag_no_v="${tag#v}"
+          crate_version=$(grep -E '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if [ "$tag_no_v" != "$crate_version" ]; then
+            echo "::error::Tag $tag (=$tag_no_v) does not match Cargo.toml version $crate_version"
+            exit 1
+          fi
+          echo "Tag and version agree: $tag_no_v"
+
+      - name: Confirm prebuilt release exists with full asset set
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="$INPUT_TAG"
+          # 8 archives (4 Linux + 2 macOS + 2 Windows) + 8 sha256 sidecars = 16.
+          # Adjust if release-prebuilt.yml matrix changes.
+          expected=16
+          got=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length' 2>/dev/null || echo 0)
+          if [ "$got" -lt "$expected" ]; then
+            echo "::error::Release $tag has $got assets, expected $expected."
+            echo "::error::Dispatch the 'Build prebuilt static archives' workflow for this tag first."
+            exit 1
+          fi
+          echo "Release $tag has $got assets — prebuilt set complete."
+
+      - name: Verify slim tarball contents
+        run: |
+          set -euo pipefail
+          cargo package --no-verify --list > /tmp/package-files.txt
+          echo "--- Files in tarball ---"
+          cat /tmp/package-files.txt
+          # Fail if any C++/large vendored files snuck in.
+          if grep -E '\.(cpp|cc|cxx|hpp|h)$|^deps/' /tmp/package-files.txt; then
+            echo "::error::Banned files in package — adjust [package.include] in Cargo.toml."
+            exit 1
+          fi
+          # Size cap: anything over 2 MB suggests something heavy leaked in.
+          cargo package --no-verify
+          size=$(stat -c%s target/package/libchdman-rs-*.crate)
+          echo "Tarball size: $size bytes"
+          if [ "$size" -gt 2097152 ]; then
+            echo "::error::Tarball exceeds 2 MB cap."
+            exit 1
+          fi
+
+      - name: Upload tarball as artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: crate-tarball
+          path: target/package/libchdman-rs-*.crate
+
+  publish:
+    name: cargo publish
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # --no-verify because verification runs `cargo build`, which would
+          # try the prebuilt download path — that works against the live
+          # GitHub Release we just confirmed exists, but the preflight job
+          # already validated the tarball contents and size. Skipping the
+          # network-dependent build here avoids a flaky publish.
+          if [ "$DRY_RUN" = "true" ]; then
+            cargo publish --dry-run --no-verify
+          else
+            cargo publish --no-verify
+          fi

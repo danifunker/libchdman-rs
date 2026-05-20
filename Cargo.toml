@@ -3,7 +3,29 @@ name = "libchdman-rs"
 version = "0.287.0-l6"
 edition = "2021"
 authors = ["danifunker"]
-description = "Rust wrapper for MAME CHD core"
+description = "Rust wrapper around MAME's CHD (Compressed Hunks of Data) core. Supports CD/DVD/HD CHD read+write and ships pre-built static archives via the `prebuilt` feature for fast CI builds."
+license = "GPL-2.0-or-later"
+repository = "https://github.com/danifunker/libchdman-rs"
+homepage = "https://github.com/danifunker/libchdman-rs"
+documentation = "https://docs.rs/libchdman-rs"
+readme = "README.md"
+keywords = ["chd", "mame", "cd-rom", "rom", "disc-image"]
+categories = ["multimedia::encoding", "filesystem", "compression"]
+
+# Files shipped in the crates.io tarball. Anything NOT listed here is
+# excluded. Intent: ship just enough to make the `prebuilt` feature
+# work, not the ~900 MB of vendored MAME C++ source. Consumers who want
+# to compile MAME from source must depend on the git repo instead — see
+# the "Choosing between crates.io and git" section of README.md.
+include = [
+    "/src/**/*.rs",
+    "/build.rs",
+    "/examples/check-prebuilt.rs",
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/LICENSE",
+]
 
 [dependencies]
 libc = "0.2"

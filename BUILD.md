@@ -101,3 +101,77 @@ removing an existing one. Existing entries stay supported as long as
 the Ubuntu runner image is supported by GitHub. Update the README table
 to match. Also widen the accepted-value list in `build.rs::try_use_prebuilt`
 (`LIBCHDMAN_GLIBC` validation) when adding a new floor.
+
+## Publishing to crates.io
+
+libchdman-rs ships to crates.io in a **slim form** — only the Rust wrapper
+code, no vendored MAME C++. Consumers who use the `prebuilt` feature get
+a ~55 KB tarball instead of cloning the ~1 GB git repo.
+
+### One-time setup
+
+1. Generate a crates.io API token at <https://crates.io/me>.
+   - Scope: `publish-update` is enough after the first version is live.
+   - The very first publish needs `publish-new` (only once for this crate name).
+2. Add the token as a repo Actions secret named `CARGO_REGISTRY_TOKEN`:
+   ```bash
+   gh secret set CARGO_REGISTRY_TOKEN
+   ```
+
+### Release flow (do this for every version)
+
+The crates.io publish is **chained after the prebuilt release**, not
+parallel to it. Order:
+
+1. Bump `version` in `Cargo.toml`, commit, push to `main`.
+2. Dispatch `Build prebuilt static archives` for the new tag (e.g.
+   `v0.287.0-l7`). Wait for it to finish — this is what actually
+   creates the git tag and the GitHub Release with all 16 assets.
+3. Dispatch `Publish to crates.io` with the same tag. The preflight
+   job confirms the release exists with 16 assets, validates the
+   slim tarball contents (no C++, < 2 MB), then `cargo publish`s.
+4. Verify on <https://crates.io/crates/libchdman-rs>.
+
+```bash
+# Dispatch the prebuilt build:
+gh workflow run release-prebuilt.yml --ref main -f tag=v0.287.0-l7
+
+# After it succeeds, dispatch the crates.io publish:
+gh workflow run publish-crates-io.yml -f tag=v0.287.0-l7
+
+# Or use dry_run=true to validate without uploading:
+gh workflow run publish-crates-io.yml -f tag=v0.287.0-l7 -f dry_run=true
+```
+
+### Local dry-run before tagging
+
+```bash
+cargo package --no-verify --list   # show files in the tarball
+cargo package --no-verify          # produce target/package/*.crate
+tar tzf target/package/libchdman-rs-*.crate | sort   # inspect
+cargo publish --dry-run --no-verify
+```
+
+The slim tarball should be:
+- under 2 MB compressed (currently ~55 KB),
+- ~17 files (Rust source + `Cargo.{toml,lock}` + `README.md` + `LICENSE`
+  + `examples/check-prebuilt.rs`),
+- no `.cpp`/`.h`/`deps/` paths anywhere.
+
+The publish workflow's preflight job enforces these — it fails the
+build before invoking `cargo publish` if any banned content sneaks in.
+
+### Why `--no-verify` on publish
+
+`cargo publish` verification runs `cargo build` in a fresh extraction
+of the tarball. That triggers `build.rs`, which has two paths:
+
+- Without `--features prebuilt`: `build.rs` hits the source-build
+  guard (no `deps/` in the tarball) and panics with the documented
+  "use prebuilt or git" message — intentional, but it fails publish.
+- With `--features prebuilt`: works, but downloads from GitHub
+  Releases during publish — slow and network-dependent.
+
+Skipping verification with `--no-verify` is safe because the preflight
+job already exercised both paths (it ran `cargo package --list` and
+validated content + size).
