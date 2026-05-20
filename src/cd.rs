@@ -532,15 +532,17 @@ fn track_type_str(t: TrackType) -> &'static str {
     }
 }
 
-/// `Read + Seek` over the cooked 2048-byte MODE1 user data of a single-track CD CHD.
+/// `Read + Seek` over the cooked 2048-byte MODE1 user data of a CD CHD track.
 ///
 /// Lets ISO9660 / UDF parsers consume a CD CHD directly without an intermediate
 /// extraction to a `.iso` on disk. MAME's `cdrom_file` strips sync, header, and
 /// ECC bytes regardless of whether the CHD stored MODE1 raw (2352) or cooked
 /// (2048), so the stream length is always `track.frames * 2048`.
 ///
-/// Open with [`CdCookedReader::open`]. Errors if the CHD has more than one track
-/// or if that track is not MODE1 / MODE1_RAW.
+/// Open with [`CdCookedReader::open`] for single-track CHDs, or
+/// [`CdCookedReader::open_track`] to pick a specific track by index in a
+/// multi-track CHD. The selected track must be `Mode1` or `Mode1Raw`; audio
+/// and Mode 2 variants can't be read as cooked 2048-byte sectors here.
 pub struct CdCookedReader {
     chd: Chd,
     cdrom: *mut sys::ChdShimCdrom,
@@ -554,21 +556,66 @@ pub struct CdCookedReader {
 unsafe impl Send for CdCookedReader {}
 
 impl CdCookedReader {
+    /// Open a single-track CD CHD as a cooked 2048-byte sector stream.
+    ///
+    /// Errors with [`ChdError::UnsupportedFormat`] if the CHD has more than
+    /// one track, or if the single track is not `Mode1` / `Mode1Raw`. For
+    /// multi-track CHDs use [`CdCookedReader::open_track`].
     pub fn open(chd: Chd) -> Result<Self> {
         let tracks = list_tracks(&chd)?;
         if tracks.len() != 1 {
             return Err(ChdError::UnsupportedFormat);
         }
-        let track = &tracks[0];
+        Self::open_track(chd, 0)
+    }
+
+    /// Open a specific track of a CHD as a cooked 2048-byte sector stream.
+    ///
+    /// `track_index` is 0-based. Position 0 of the resulting reader
+    /// corresponds to the start of that track's user data, not the start of
+    /// the CHD. Multi-track CHDs (PSX / Saturn / mixed-mode PC CDs) store
+    /// tracks back-to-back with chdman's 4-frame padding between them; the
+    /// underlying offset math is handled by MAME's `cdrom_file`, so callers
+    /// just pass the track index.
+    ///
+    /// Accepted track types (all yield 2048 user bytes per sector via
+    /// MAME's per-mode extraction):
+    ///
+    /// - [`TrackType::Mode1`]
+    /// - [`TrackType::Mode1Raw`]
+    /// - [`TrackType::Mode2Form1`] (CD-XA Form 1: strips sync + header + subheader)
+    /// - [`TrackType::Mode2Raw`] (treated like Form 1; common PSX/Saturn case)
+    /// - [`TrackType::Mode2FormMix`] (CD-XA mixed-form: strips subheader only)
+    ///
+    /// Errors:
+    /// - [`ChdError::InvalidData`] if `track_index` is out of range.
+    /// - [`ChdError::UnsupportedFormat`] if the selected track is
+    ///   [`TrackType::Audio`] (no 2048-byte cooked representation of a
+    ///   Red Book audio track), or [`TrackType::Mode2`] / [`TrackType::Mode2Form2`]
+    ///   (MAME's `cdrom_file` doesn't define a 2048-byte conversion from these
+    ///   — Mode 2 bare carries 2336 user bytes per sector and Form 2 carries
+    ///   2324; neither lines up with a 2048-byte stream).
+    pub fn open_track(chd: Chd, track_index: u32) -> Result<Self> {
+        let tracks = list_tracks(&chd)?;
+        if (track_index as usize) >= tracks.len() {
+            return Err(ChdError::InvalidData);
+        }
+        let track = &tracks[track_index as usize];
         match track.track_type {
-            TrackType::Mode1 | TrackType::Mode1Raw => {}
-            _ => return Err(ChdError::UnsupportedFormat),
+            TrackType::Mode1
+            | TrackType::Mode1Raw
+            | TrackType::Mode2Form1
+            | TrackType::Mode2Raw
+            | TrackType::Mode2FormMix => {}
+            TrackType::Audio | TrackType::Mode2 | TrackType::Mode2Form2 => {
+                return Err(ChdError::UnsupportedFormat);
+            }
         }
         let cdrom = unsafe { sys::chd_shim_cdrom_open(chd.raw_ptr()) };
         if cdrom.is_null() {
             return Err(ChdError::InvalidData);
         }
-        let track_start = unsafe { sys::chd_shim_cdrom_get_track_start(cdrom, 0) };
+        let track_start = unsafe { sys::chd_shim_cdrom_get_track_start(cdrom, track_index) };
         Ok(Self {
             chd,
             cdrom,

@@ -1,6 +1,8 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use libchdman_rs::cd::{self, CdCreateOptions, SubcodeType, TrackType};
+use std::io::{Read, Seek, SeekFrom, Write};
+
+use libchdman_rs::cd::{self, CdCookedReader, CdCreateOptions, SubcodeType, TrackType};
 use libchdman_rs::{
     Chd, ChdError, CHD_CODEC_CD_FLAC, CHD_CODEC_CD_LZMA, CHD_CODEC_CD_ZLIB, CHD_CODEC_CD_ZSTD,
     CHD_CODEC_NONE,
@@ -237,5 +239,373 @@ fn cancellation_deletes_partial_cd_chd() {
     assert!(
         !chd_path.exists(),
         "partial CHD was not removed after cancel"
+    );
+}
+
+// ---------- CdCookedReader: multi-track support ----------
+
+// MODE1/2352 raw sector layout: 12 sync + 4 header + 2048 user + 4 EDC
+// + 8 reserved + 276 ECC. We only care about where the user payload
+// sits when reading bytes back out of the original BIN.
+const RAW_SECTOR_BYTES: usize = 2352;
+const SYNC_HEADER_BYTES: usize = 16;
+const USER_BYTES: usize = 2048;
+
+/// Build a MODE1/2352 raw .bin from a sequence of cooked 2048-byte payloads.
+/// We don't bother computing EDC/ECC — chdman will rewrite a fresh set of
+/// MODE1_RAW sectors with valid syndromes when we extract or read back,
+/// and CdCookedReader returns only the user bytes anyway.
+fn synth_mode1_raw_bin(payloads: &[[u8; USER_BYTES]]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(payloads.len() * RAW_SECTOR_BYTES);
+    for payload in payloads {
+        // Sync pattern: 00 FF*10 00
+        out.push(0);
+        out.extend(std::iter::repeat_n(0xFFu8, 10));
+        out.push(0);
+        // Header (MSF + mode byte): zeros are fine; chdman recomputes
+        // syndromes during MODE1_RAW encoding.
+        out.extend([0u8; 3]);
+        out.push(1);
+        out.extend_from_slice(payload);
+        // EDC + intermediate + ECC: 4 + 8 + 276 = 288 zero bytes.
+        out.extend(std::iter::repeat_n(0u8, 288));
+    }
+    out
+}
+
+#[test]
+fn open_track_single_track_parity() {
+    // Build a single-track MODE1_RAW CHD from a synthetic .bin; compare
+    // open(chd) and open_track(chd, 0) byte-for-byte over the first N
+    // sectors. They must produce identical output.
+    let dir = tmpdir();
+    let bin_path = dir.path().join("single.bin");
+    let cue_path = dir.path().join("single.cue");
+    let chd_path = dir.path().join("single.chd");
+
+    let mut payloads: Vec<[u8; USER_BYTES]> = Vec::new();
+    for lba in 0u32..32 {
+        let mut p = [0u8; USER_BYTES];
+        for (i, b) in p.iter_mut().enumerate() {
+            *b = ((lba as usize + i) & 0xFF) as u8;
+        }
+        payloads.push(p);
+    }
+    std::fs::write(&bin_path, synth_mode1_raw_bin(&payloads)).unwrap();
+    let mut cue = std::fs::File::create(&cue_path).unwrap();
+    writeln!(cue, "FILE \"single.bin\" BINARY").unwrap();
+    writeln!(cue, "  TRACK 01 MODE1/2352").unwrap();
+    writeln!(cue, "    INDEX 01 00:00:00").unwrap();
+    drop(cue);
+
+    cd::create_from_cue(
+        &cue_path,
+        &chd_path,
+        CdCreateOptions::default(),
+        &mut |_| {},
+        &|| false,
+    )
+    .unwrap();
+
+    let read_full = |reader: &mut CdCookedReader| {
+        let mut buf = vec![0u8; 16 * USER_BYTES];
+        reader.read_exact(&mut buf).unwrap();
+        buf
+    };
+    let chd_a = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+    let mut r_open = CdCookedReader::open(chd_a).unwrap();
+    let bytes_open = read_full(&mut r_open);
+
+    let chd_b = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+    let mut r_open_track = CdCookedReader::open_track(chd_b, 0).unwrap();
+    let bytes_open_track = read_full(&mut r_open_track);
+
+    assert_eq!(
+        bytes_open, bytes_open_track,
+        "open and open_track(_, 0) must produce identical bytes for a single-track CHD"
+    );
+}
+
+#[test]
+fn open_track_multi_data_track_distinguishable() {
+    // Two MODE1/2352 data tracks with distinguishable LBA-0 payloads.
+    // open_track(chd, 0) and open_track(chd, 1) must return different
+    // bytes at offset 0 — proving the per-track LBA offset works.
+    let dir = tmpdir();
+    let chd_path = dir.path().join("multi_data.chd");
+
+    let mut t1_payloads: Vec<[u8; USER_BYTES]> = Vec::with_capacity(8);
+    let mut t2_payloads: Vec<[u8; USER_BYTES]> = Vec::with_capacity(8);
+    for _ in 0..8 {
+        t1_payloads.push([0xAA; USER_BYTES]);
+        t2_payloads.push([0xBB; USER_BYTES]);
+    }
+    std::fs::write(dir.path().join("t1.bin"), synth_mode1_raw_bin(&t1_payloads)).unwrap();
+    std::fs::write(dir.path().join("t2.bin"), synth_mode1_raw_bin(&t2_payloads)).unwrap();
+    let cue_path = dir.path().join("multi.cue");
+    let mut cue = std::fs::File::create(&cue_path).unwrap();
+    writeln!(cue, "FILE \"t1.bin\" BINARY").unwrap();
+    writeln!(cue, "  TRACK 01 MODE1/2352").unwrap();
+    writeln!(cue, "    INDEX 01 00:00:00").unwrap();
+    writeln!(cue, "FILE \"t2.bin\" BINARY").unwrap();
+    writeln!(cue, "  TRACK 02 MODE1/2352").unwrap();
+    writeln!(cue, "    INDEX 01 00:00:00").unwrap();
+    drop(cue);
+
+    cd::create_from_cue(
+        &cue_path,
+        &chd_path,
+        CdCreateOptions::default(),
+        &mut |_| {},
+        &|| false,
+    )
+    .unwrap();
+
+    let chd0 = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+    let mut r0 = CdCookedReader::open_track(chd0, 0).unwrap();
+    let mut b0 = [0u8; USER_BYTES];
+    r0.read_exact(&mut b0).unwrap();
+    assert_eq!(b0, [0xAA; USER_BYTES], "track 0 LBA 0 should be 0xAA");
+
+    let chd1 = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+    let mut r1 = CdCookedReader::open_track(chd1, 1).unwrap();
+    let mut b1 = [0u8; USER_BYTES];
+    r1.read_exact(&mut b1).unwrap();
+    assert_eq!(b1, [0xBB; USER_BYTES], "track 1 LBA 0 should be 0xBB");
+
+    assert_ne!(
+        b0, b1,
+        "open_track at index 0 and 1 must yield different bytes at offset 0"
+    );
+}
+
+#[test]
+fn open_track_rejects_audio_track() {
+    // Use the data + audio fixture. Track 1 is Audio — open_track must
+    // return UnsupportedFormat, not panic.
+    let _ = common::fixtures_dir();
+    let cue = common::fixture_path(common::assets::CD_CUE);
+    let dir = tmpdir();
+    let chd_path = dir.path().join("data_audio.chd");
+    cd::create_from_cue(
+        &cue,
+        &chd_path,
+        CdCreateOptions::default(),
+        &mut |_| {},
+        &|| false,
+    )
+    .unwrap();
+
+    let chd = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+    let res = CdCookedReader::open_track(chd, 1);
+    assert!(matches!(res, Err(ChdError::UnsupportedFormat)));
+}
+
+#[test]
+fn open_track_rejects_out_of_range_index() {
+    let _ = common::fixtures_dir();
+    let cue = common::fixture_path(common::assets::CD_CUE);
+    let dir = tmpdir();
+    let chd_path = dir.path().join("oor.chd");
+    cd::create_from_cue(
+        &cue,
+        &chd_path,
+        CdCreateOptions::default(),
+        &mut |_| {},
+        &|| false,
+    )
+    .unwrap();
+
+    let chd = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+    let res = CdCookedReader::open_track(chd, 99);
+    assert!(matches!(res, Err(ChdError::InvalidData)));
+}
+
+/// Build a MODE2/2352 raw .bin from 2048-byte payloads. The 24-byte
+/// preamble is sync (12) + header (4) + subheader (8). MAME's
+/// `cdrom_file::read_data` with `datatype=CD_TRACK_MODE1` (= 0) against
+/// a `MODE2_RAW` track strips the first 24 bytes and returns the next
+/// 2048 — so we just need to place our payload at offset 24 and zero
+/// the trailing EDC/ECC region (280 bytes). chdman stores MODE2_RAW
+/// sectors verbatim.
+fn synth_mode2_raw_bin(payloads: &[[u8; USER_BYTES]]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(payloads.len() * RAW_SECTOR_BYTES);
+    for payload in payloads {
+        // 12 bytes sync
+        out.push(0);
+        out.extend(std::iter::repeat_n(0xFFu8, 10));
+        out.push(0);
+        // 4 bytes header: MSF + mode=2
+        out.extend([0u8; 3]);
+        out.push(2);
+        // 8 bytes subheader. Form 1 indicated by submode bit 5 == 0 in both
+        // copies; chdman doesn't care, MAME just blindly strips 24 bytes
+        // for our datatype path.
+        out.extend([0u8; 8]);
+        out.extend_from_slice(payload);
+        // 4 EDC + 276 ECC = 280 trailing bytes.
+        out.extend(std::iter::repeat_n(0u8, 280));
+    }
+    out
+}
+
+#[test]
+fn open_track_mode2_form1_data_track() {
+    // Synthesize a single-track MODE2/2352 (a.k.a. MODE2_RAW) CHD with
+    // distinguishable user data per sector. Confirm CdCookedReader at
+    // LBA 16 returns the exact 2048 user bytes from the source .bin.
+    let dir = tmpdir();
+    let bin_path = dir.path().join("m2.bin");
+    let cue_path = dir.path().join("m2.cue");
+    let chd_path = dir.path().join("m2.chd");
+
+    let mut payloads: Vec<[u8; USER_BYTES]> = Vec::new();
+    for lba in 0u32..32 {
+        let mut p = [0u8; USER_BYTES];
+        for (i, b) in p.iter_mut().enumerate() {
+            *b = ((lba.wrapping_mul(7) as usize).wrapping_add(i) & 0xFF) as u8;
+        }
+        payloads.push(p);
+    }
+    std::fs::write(&bin_path, synth_mode2_raw_bin(&payloads)).unwrap();
+    let mut cue = std::fs::File::create(&cue_path).unwrap();
+    writeln!(cue, "FILE \"m2.bin\" BINARY").unwrap();
+    writeln!(cue, "  TRACK 01 MODE2/2352").unwrap();
+    writeln!(cue, "    INDEX 01 00:00:00").unwrap();
+    drop(cue);
+
+    cd::create_from_cue(
+        &cue_path,
+        &chd_path,
+        CdCreateOptions::default(),
+        &mut |_| {},
+        &|| false,
+    )
+    .unwrap();
+
+    // Verify the trktype landed as MODE2_RAW so we know we're exercising
+    // the Mode-2 conversion path, not falling back through Mode-1.
+    {
+        let chd_inspect = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+        let tracks = cd::list_tracks(&chd_inspect).unwrap();
+        assert_eq!(
+            tracks[0].track_type,
+            TrackType::Mode2Raw,
+            "MODE2/2352 in CUE must produce Mode2Raw trktype"
+        );
+    }
+
+    let chd = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+    let mut reader = CdCookedReader::open_track(chd, 0).unwrap();
+    let lba = 16usize;
+    reader
+        .seek(SeekFrom::Start((lba * USER_BYTES) as u64))
+        .unwrap();
+    let mut got = vec![0u8; USER_BYTES];
+    reader.read_exact(&mut got).unwrap();
+    assert_eq!(
+        &got[..],
+        &payloads[lba][..],
+        "Mode 2 Form 1 LBA 16 must round-trip via CHD encode + cooked read"
+    );
+}
+
+#[test]
+fn open_track_mode2_plus_audio_multi_track() {
+    // PSX/Saturn-style layout: one MODE2/2352 data track + one AUDIO
+    // track. open_track(chd, 0) reads the data; open_track(chd, 1)
+    // returns UnsupportedFormat for the audio track.
+    let dir = tmpdir();
+
+    let mut data_payloads: Vec<[u8; USER_BYTES]> = Vec::new();
+    for _ in 0..16 {
+        data_payloads.push([0xCC; USER_BYTES]);
+    }
+    std::fs::write(
+        dir.path().join("data.bin"),
+        synth_mode2_raw_bin(&data_payloads),
+    )
+    .unwrap();
+
+    // Minimal AUDIO track: 8 frames * 2352 bytes of zero.
+    std::fs::write(
+        dir.path().join("audio.bin"),
+        vec![0u8; 8 * RAW_SECTOR_BYTES],
+    )
+    .unwrap();
+
+    let cue_path = dir.path().join("psx_like.cue");
+    let mut cue = std::fs::File::create(&cue_path).unwrap();
+    writeln!(cue, "FILE \"data.bin\" BINARY").unwrap();
+    writeln!(cue, "  TRACK 01 MODE2/2352").unwrap();
+    writeln!(cue, "    INDEX 01 00:00:00").unwrap();
+    writeln!(cue, "FILE \"audio.bin\" BINARY").unwrap();
+    writeln!(cue, "  TRACK 02 AUDIO").unwrap();
+    writeln!(cue, "    INDEX 01 00:00:00").unwrap();
+    drop(cue);
+
+    let chd_path = dir.path().join("psx_like.chd");
+    cd::create_from_cue(
+        &cue_path,
+        &chd_path,
+        CdCreateOptions::default(),
+        &mut |_| {},
+        &|| false,
+    )
+    .unwrap();
+
+    // Data track 0: read and confirm payload.
+    let chd0 = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+    let tracks = cd::list_tracks(&chd0).unwrap();
+    assert_eq!(tracks.len(), 2);
+    assert_eq!(tracks[0].track_type, TrackType::Mode2Raw);
+    assert_eq!(tracks[1].track_type, TrackType::Audio);
+
+    let mut r0 = CdCookedReader::open_track(chd0, 0).unwrap();
+    let mut b0 = [0u8; USER_BYTES];
+    r0.read_exact(&mut b0).unwrap();
+    assert_eq!(b0, [0xCC; USER_BYTES], "Mode 2 data track LBA 0 payload");
+
+    // Audio track 1: must reject with UnsupportedFormat.
+    let chd1 = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+    let res = CdCookedReader::open_track(chd1, 1);
+    assert!(matches!(res, Err(ChdError::UnsupportedFormat)));
+}
+
+#[test]
+fn open_track_lba_16_roundtrips_data_track() {
+    // The 2-track fixture: track 0 is MODE1_RAW data, track 1 is Audio.
+    // Sector 16 of the data track is what an ISO 9660 consumer reads
+    // first (the Primary Volume Descriptor). Verify CdCookedReader's
+    // bytes at position 16 * 2048 match the same offset in the raw .bin.
+    let _ = common::fixtures_dir();
+    let cue = common::fixture_path(common::assets::CD_CUE);
+    let data_bin_path = common::fixture_path(common::assets::CD_DATA_BIN);
+    let data_bin = std::fs::read(&data_bin_path).unwrap();
+    let lba = 16usize;
+    let raw_start = lba * RAW_SECTOR_BYTES + SYNC_HEADER_BYTES;
+    let expected = &data_bin[raw_start..raw_start + USER_BYTES];
+
+    let dir = tmpdir();
+    let chd_path = dir.path().join("pvd.chd");
+    cd::create_from_cue(
+        &cue,
+        &chd_path,
+        CdCreateOptions::default(),
+        &mut |_| {},
+        &|| false,
+    )
+    .unwrap();
+
+    let chd = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+    let mut reader = CdCookedReader::open_track(chd, 0).unwrap();
+    reader
+        .seek(SeekFrom::Start((lba * USER_BYTES) as u64))
+        .unwrap();
+    let mut got = vec![0u8; USER_BYTES];
+    reader.read_exact(&mut got).unwrap();
+    assert_eq!(
+        &got, expected,
+        "LBA 16 user data must round-trip via CHD encode + cooked read"
     );
 }

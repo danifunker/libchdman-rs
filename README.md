@@ -66,11 +66,11 @@ create_from_cue(
 
 ### Reading a CD CHD as a cooked ISO stream
 
-For single-track MODE1 / MODE1_RAW CD CHDs, `CdCookedReader` exposes the
-2048-byte/sector user data as a `Read + Seek` stream — useful for browsing the
-ISO9660 / UDF filesystem inside a CD CHD without extracting to a temp file
-first. Length is `track.frames * 2048`; sync, header, and ECC bytes are stripped
-by MAME regardless of whether the CHD stored the track raw or cooked.
+For MODE1 / MODE1_RAW CD tracks, `CdCookedReader` exposes the 2048-byte/sector
+user data as a `Read + Seek` stream — useful for browsing the ISO9660 / UDF
+filesystem inside a CD CHD without extracting to a temp file first. Length is
+`track.frames * 2048`; sync, header, and ECC bytes are stripped by MAME
+regardless of whether the CHD stored the track raw or cooked.
 
 ```rust
 use libchdman_rs::cd::CdCookedReader;
@@ -90,9 +90,23 @@ assert_eq!(&pvd[1..6], b"CD001");
 let total_bytes = reader.len();
 ```
 
-`CdCookedReader::open` returns `Err(ChdError::UnsupportedFormat)` for multi-track
-or audio CHDs. Use `Chd::info().is_cd` and `cd::list_tracks` to gate before
-calling. `into_inner()` recovers the owned `Chd` if you need it back.
+For multi-track CHDs (PSX / Saturn / mixed-mode PC CDs: one data track plus one
+or more audio tracks), use `CdCookedReader::open_track(chd, track_index)` to
+pick which track to expose. Position 0 corresponds to the start of the selected
+track's user data, not the start of the CHD. The track must be MODE1 / MODE1_RAW;
+audio and Mode 2 variants return `Err(ChdError::UnsupportedFormat)`.
+
+```rust
+// PSX game: track 0 is data, tracks 1..N are audio.
+let chd = Chd::open("psx-game.chd", false, None)?;
+let data_reader = CdCookedReader::open_track(chd, 0)?;
+```
+
+`CdCookedReader::open` (no `_track`) returns `Err(ChdError::UnsupportedFormat)`
+for multi-track CHDs as a back-compat guard; pick a track explicitly with
+`open_track` instead. Out-of-range `track_index` returns `Err(ChdError::InvalidData)`.
+Use `Chd::info().is_cd` and `cd::list_tracks` to inspect the TOC before opening.
+`into_inner()` recovers the owned `Chd` if you need it back.
 
 ### Runtime hard-disk writes (MAME-style)
 
