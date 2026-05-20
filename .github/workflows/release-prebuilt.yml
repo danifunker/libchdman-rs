@@ -181,10 +181,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      # Pinned to the latest tagged release (v1.13.0, 2024-01-01). Note:
-      # this action still ships with `using: node20`; until upstream cuts a
-      # Node 24 release, GH Actions will emit a deprecation warning.
-      - uses: ilammy/msvc-dev-cmd@v1.13.0
+      # Pinned to the exact commit that the `@v1` floating tag currently
+      # resolves to (newer than the v1.13.0 release tag — v1.13.0 has a
+      # PATH-handling bug that causes cargo to find Git's coreutils
+      # link.exe instead of MSVC's). Upstream's action.yml still uses
+      # `node20`, so GH Actions will emit a Node 24 deprecation warning
+      # until they cut a new release.
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1 @ 2025-XX
         with:
           arch: ${{ matrix.target == 'i686-pc-windows-msvc' && 'x86' || 'x64' }}
       - run: cargo build --release --target ${{ matrix.target }}
