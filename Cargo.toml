@@ -36,6 +36,6 @@ chdman_compat_tests = []
 #   - set LIBCHDMAN_FORCE_SOURCE=1 to skip the download path entirely
 #   - set LIBCHDMAN_GLIBC=<floor> (Linux only) to choose which glibc floor
 #     the prebuilt archive was built against. Accepts the bare value
-#     (e.g. "2.31") or "auto" (default — picks glibc2.35, the modern
+#     (e.g. "2.35") or "auto" (default — picks glibc2.35, the modern
 #     sweet spot for Debian 12 / Ubuntu 22.04 / RHEL 9)
 prebuilt = ["dep:ureq", "dep:sha2", "dep:hex"]

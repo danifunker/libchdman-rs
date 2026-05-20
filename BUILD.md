@@ -36,12 +36,16 @@ the workflow again with the same tag input.
 
 ## What the workflow builds
 
-For each tag, the workflow produces 10 archive files plus 10 `.sha256`
+For each tag, the workflow produces 8 archive files plus 8 `.sha256`
 sidecars:
 
-- 6 Linux archives: `(x86_64, aarch64) × (glibc2.31, glibc2.35, glibc2.39)`
-- 2 macOS archives: `x86_64-apple-darwin`, `aarch64-apple-darwin`
+- 4 Linux archives: `(x86_64, aarch64) × (glibc2.35, glibc2.39)`
+- 2 macOS archives: `x86_64-apple-darwin` (on `macos-15-intel`),
+  `aarch64-apple-darwin` (on `macos-latest`)
 - 2 Windows archives: `x86_64-pc-windows-msvc`, `i686-pc-windows-msvc`
+
+The previous `glibc2.31` floor was retired when GitHub deprecated the
+`ubuntu-20.04` runner image; the bottom supported floor is now 2.35.
 
 Each archive is a single fat static library — the workflow merges the six
 component `.a` / `.lib` files that `build.rs` produces (chd_shim plus the

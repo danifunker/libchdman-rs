@@ -236,25 +236,21 @@ the build will fail with a clear message.
 
 ### Linux: picking a glibc floor
 
-Linux archives are built against three glibc versions, and you choose
+Linux archives are built against two glibc versions, and you choose
 which floor your binary should require:
 
 | `LIBCHDMAN_GLIBC` | glibc floor | Built on Ubuntu | Works on (examples)               |
 |-------------------|-------------|-----------------|-----------------------------------|
-| `2.31`            | 2.31        | 20.04           | Debian 11, RHEL 8, older distros  |
 | `2.35` (default)  | 2.35        | 22.04           | Debian 12, RHEL 9, modern distros |
 | `2.39`            | 2.39        | 24.04           | Newest distros only               |
 
-Set `LIBCHDMAN_GLIBC=2.31` in your CI environment if you ship a binary
-that needs to run on older Linux distributions:
-
-```yaml
-env:
-  LIBCHDMAN_GLIBC: '2.31'
-```
-
 If unset (or `auto`), the build script picks `2.35` — the modern sweet
 spot. macOS and Windows builds ignore this variable.
+
+> The previous `2.31` floor (Debian 11 / RHEL 8 era) was dropped when
+> GitHub retired the `ubuntu-20.04` runner image. Consumers on older
+> distros should fall back to source build with
+> `LIBCHDMAN_PREBUILT_FALLBACK=1`.
 
 ### Escape hatches
 

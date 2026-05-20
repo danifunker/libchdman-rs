@@ -353,10 +353,11 @@ fn try_use_prebuilt() -> Result<(), String> {
         let raw = std::env::var("LIBCHDMAN_GLIBC").unwrap_or_else(|_| "auto".into());
         let chosen = match raw.as_str() {
             "auto" | "" => "2.35",
-            "2.31" | "2.35" | "2.39" => raw.as_str(),
+            "2.35" | "2.39" => raw.as_str(),
             other => {
                 return Err(format!(
-                    "LIBCHDMAN_GLIBC={other} not recognized (expected 2.31, 2.35, 2.39, or auto)"
+                    "LIBCHDMAN_GLIBC={other} not recognized (expected 2.35, 2.39, or auto). \
+                     The 2.31 floor was dropped when GitHub retired ubuntu-20.04 runners."
                 ));
             }
         };

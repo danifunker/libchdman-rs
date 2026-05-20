@@ -57,19 +57,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
-            glibc: glibc2.31
-            runs_on: ubuntu-20.04
+          # glibc2.31 floor (ubuntu-20.04) was dropped: the runner is being
+          # retired and was queueing indefinitely. Bottom supported floor
+          # is now 2.35 (Ubuntu 22.04 / Debian 12 / RHEL 9).
           - target: x86_64-unknown-linux-gnu
             glibc: glibc2.35
             runs_on: ubuntu-22.04
           - target: x86_64-unknown-linux-gnu
             glibc: glibc2.39
             runs_on: ubuntu-24.04
-          - target: aarch64-unknown-linux-gnu
-            glibc: glibc2.31
-            runs_on: ubuntu-22.04-arm
-            cross: true
           - target: aarch64-unknown-linux-gnu
             glibc: glibc2.35
             runs_on: ubuntu-22.04-arm
@@ -131,8 +127,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # macos-15-intel is GitHub's current Intel macOS image. If the
+          # label is rejected ("no runner matches"), switch this to
+          # cross-compile from macos-latest via `--target x86_64-apple-darwin`.
           - target: x86_64-apple-darwin
-            runs_on: macos-13
+            runs_on: macos-15-intel
           - target: aarch64-apple-darwin
             runs_on: macos-latest
     env:
