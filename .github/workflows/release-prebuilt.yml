@@ -211,11 +211,16 @@ jobs:
         shell: bash
         run: scripts/validate-archive.sh "out/libchdman_rs-${{ matrix.target }}.lib"
       - name: Smoke test — link prebuilt and run example
-        shell: bash
+        # Default to pwsh (no `shell: bash`). Under MSYS bash, PATH puts
+        # Git's coreutils `link.exe` (a hardlink creator) ahead of MSVC's
+        # linker, so cargo's host-arch compile of proc-macro crates fails
+        # with /usr/bin/link: extra operand ...
         env:
-          LIBCHDMAN_PREBUILT_LOCAL_ARCHIVE: ${{ github.workspace }}/out/libchdman_rs-${{ matrix.target }}.lib
+          LIBCHDMAN_PREBUILT_LOCAL_ARCHIVE: ${{ github.workspace }}\out\libchdman_rs-${{ matrix.target }}.lib
         run: |
-          rm -rf target/${{ matrix.target }}/release/examples
+          if (Test-Path "target/${{ matrix.target }}/release/examples") {
+            Remove-Item -Recurse -Force "target/${{ matrix.target }}/release/examples"
+          }
           cargo run --release --features prebuilt --target ${{ matrix.target }} --example check-prebuilt
       - uses: actions/upload-artifact@v6
         with:
