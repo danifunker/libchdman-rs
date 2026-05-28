@@ -260,6 +260,10 @@ uint32_t chd_shim_cdrom_get_track_start(const chd_shim_cdrom_t* c, uint32_t trac
     return c->cd->get_track_start(track);
 }
 
+uint32_t chd_shim_cdrom_get_track_start_phys(const chd_shim_cdrom_t* c, uint32_t track) {
+    return c->cd->get_track_start_phys(track);
+}
+
 int chd_shim_cdrom_read_data(chd_shim_cdrom_t* c, uint32_t lba, void* buffer, uint32_t datatype, int phys) {
     return c->cd->read_data(lba, buffer, datatype, phys != 0) ? 1 : 0;
 }

@@ -166,6 +166,10 @@ void chd_shim_cdrom_free(chd_shim_cdrom_t* c);
 uint32_t chd_shim_cdrom_num_tracks(const chd_shim_cdrom_t* c);
 void chd_shim_cdrom_get_track(const chd_shim_cdrom_t* c, uint32_t i, chd_shim_track_t* out);
 uint32_t chd_shim_cdrom_get_track_start(const chd_shim_cdrom_t* c, uint32_t track);
+// Physical frame offset of a track in the CHD (cdrom_file::get_track_start_phys).
+// Differs from get_track_start (logical) when pregaps are baked into the data,
+// e.g. GD-ROM discs. chdman reads raw frames via the physical offset.
+uint32_t chd_shim_cdrom_get_track_start_phys(const chd_shim_cdrom_t* c, uint32_t track);
 // Read a single LBA sector. `buffer` must be sized for `datatype`
 // (e.g. 2352 for raw, 2048 for cooked MODE1). `phys` flag matches
 // cdrom_file::read_data's `phys` param.

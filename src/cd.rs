@@ -4,9 +4,10 @@
 //! audio byte-swap, CHT2 metadata records — is delegated to MAME via
 //! FFI shims (see `sys/cd_shim.cpp`). This module is a thin Rust facade.
 //!
-//! Status: this is the first pass. `create_from_cue`, `create_from_iso`,
-//! and `list_tracks` are wired up. `extract_to_cue` and `extract_to_iso`
-//! are tracked separately and will land next.
+//! Create: `create_from_cue` (CUE/GDI/ISO/Nero inputs) and
+//! `create_from_iso`. Extract: `extract_to_cue` (CUE/BIN),
+//! `extract_to_iso` (single data track), and `extract_to_gdi` (Sega
+//! GD-ROM index + per-track split files). `list_tracks` reports the TOC.
 
 use std::ffi::{CStr, CString};
 use std::fs::File;
@@ -473,6 +474,158 @@ pub fn extract_to_iso(
         progress(written);
     }
     writer.flush().map_err(|_| ChdError::InvalidFile)?;
+    Ok(())
+}
+
+/// Extract a CD/GD-ROM CHD to a `.gdi` index plus per-track split files,
+/// mirroring chdman's `extractcd` GDI output (`MODE_GDI` in
+/// `do_extract_cd`).
+///
+/// Writes `gdi_path` — first line is the track count, then one
+/// `num lba type datasize "file" offset` line per track (`type` 0 =
+/// audio, 4 = data; `offset` is always 0 since each track gets its own
+/// file). Alongside it, one file per track is written named
+/// `<stem>NN.bin` (data) or `<stem>NN.raw` (audio), where `<stem>` is
+/// `gdi_path` with its extension removed and `NN` is the zero-padded
+/// track number — the same `%02t` scheme chdman uses.
+///
+/// Audio tracks are byte-swapped to little-endian for CHD version > 4
+/// (matching chdman: GD-ROM v5+ CHDs store audio big-endian). Frames
+/// belonging to a track but physically stored at the tail of the
+/// previous track (`splitframes`) are pulled across the boundary, the
+/// reverse of how the GD-ROM CHD was built. Subcode is dropped — GDI
+/// cannot represent it.
+pub fn extract_to_gdi(
+    chd_path: &Path,
+    gdi_path: &Path,
+    progress: &mut dyn FnMut(u64),
+) -> Result<()> {
+    let chd = Chd::open(chd_path.to_str().ok_or(ChdError::InvalidFile)?, false, None)?;
+    let raw_chd = chd.raw_ptr();
+    let version = unsafe { sys::chd_shim_version(raw_chd) };
+
+    let cdrom = unsafe { sys::chd_shim_cdrom_open(raw_chd) };
+    if cdrom.is_null() {
+        return Err(ChdError::InvalidData);
+    }
+    struct CdromGuard(*mut sys::ChdShimCdrom);
+    impl Drop for CdromGuard {
+        fn drop(&mut self) {
+            unsafe { sys::chd_shim_cdrom_free(self.0) };
+        }
+    }
+    let _guard = CdromGuard(cdrom);
+
+    let n_tracks = unsafe { sys::chd_shim_cdrom_num_tracks(cdrom) };
+    if n_tracks == 0 {
+        return Err(ChdError::InvalidData);
+    }
+
+    // Output stem: gdi path with extension stripped. Track files are
+    // siblings named "<stem>NN.<ext>".
+    let stem = gdi_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or(ChdError::InvalidFile)?;
+    let dir = gdi_path.parent().unwrap_or_else(|| Path::new("."));
+
+    let mut tracks = Vec::with_capacity(n_tracks as usize);
+    for i in 0..n_tracks {
+        let mut t = sys::ChdShimTrack::default();
+        unsafe { sys::chd_shim_cdrom_get_track(cdrom, i, &mut t) };
+        tracks.push(t);
+    }
+
+    let gdi_file = File::create(gdi_path).map_err(|_| ChdError::InvalidFile)?;
+    let mut gdi_writer = BufWriter::new(gdi_file);
+    writeln!(gdi_writer, "{}", n_tracks).map_err(|_| ChdError::InvalidFile)?;
+
+    let mut sector = vec![0u8; RAW_SECTOR_SIZE];
+    let mut written: u64 = 0;
+    // GDI LBA: accumulates across tracks (chdman never resets discoffs in
+    // MODE_GDI). This is the per-track frame offset written to the index.
+    let mut disc_offs: u32 = 0;
+
+    for tracknum in 0..n_tracks as usize {
+        let t = tracks[tracknum];
+        let trktype = TrackType::from_raw(t.trktype).unwrap_or(TrackType::Mode1);
+        let is_audio = trktype == TrackType::Audio;
+        let ext = if is_audio { "raw" } else { "bin" };
+        let track_filename = format!("{}{:02}.{}", stem, tracknum + 1, ext);
+        let track_path = dir.join(&track_filename);
+
+        // GDI index line: track# lba type datasize "file" offset.
+        let gdi_type = if is_audio { 0 } else { 4 };
+        let q = if track_filename.contains(' ') { "\"" } else { "" };
+        writeln!(
+            gdi_writer,
+            "{} {} {} {} {}{}{} 0",
+            tracknum + 1,
+            disc_offs,
+            gdi_type,
+            t.datasize,
+            q,
+            track_filename,
+            q
+        )
+        .map_err(|_| ChdError::InvalidFile)?;
+
+        let track_file = File::create(&track_path).map_err(|_| ChdError::InvalidFile)?;
+        let mut track_writer = BufWriter::with_capacity(64 * 1024, track_file);
+
+        let cur_phys = unsafe { sys::chd_shim_cdrom_get_track_start_phys(cdrom, tracknum as u32) };
+        let prev_phys = if tracknum > 0 {
+            unsafe { sys::chd_shim_cdrom_get_track_start_phys(cdrom, (tracknum - 1) as u32) }
+        } else {
+            0
+        };
+
+        let actual_frames = t
+            .frames
+            .saturating_sub(t.padframes)
+            .saturating_add(t.splitframes);
+
+        for frame in 0..actual_frames {
+            // The first `splitframes` frames of this track live at the
+            // tail of the previous track; pull them from there.
+            let (src, lba) = if tracknum > 0 && frame < t.splitframes {
+                let prev = tracks[tracknum - 1];
+                let frameofs = prev.frames.wrapping_sub(t.splitframes).wrapping_add(frame);
+                (prev, prev_phys.wrapping_add(frameofs))
+            } else {
+                let frameofs = frame.wrapping_sub(t.splitframes);
+                (t, cur_phys.wrapping_add(frameofs))
+            };
+            let ok = unsafe {
+                sys::chd_shim_cdrom_read_data(
+                    cdrom,
+                    lba,
+                    sector.as_mut_ptr() as *mut _,
+                    src.trktype,
+                    1,
+                )
+            };
+            if ok == 0 {
+                return Err(ChdError::InvalidData);
+            }
+            let bytes = src.datasize as usize;
+            // Audio in GDI + CHD v5+ is stored big-endian; swap to LE.
+            if src.trktype == TrackType::Audio as u32 && version > 4 {
+                for i in (0..bytes).step_by(2) {
+                    sector.swap(i, i + 1);
+                }
+            }
+            track_writer
+                .write_all(&sector[..bytes])
+                .map_err(|_| ChdError::InvalidFile)?;
+            written += bytes as u64;
+            progress(written);
+            disc_offs = disc_offs.wrapping_add(1);
+        }
+        track_writer.flush().map_err(|_| ChdError::InvalidFile)?;
+        disc_offs = disc_offs.wrapping_add(t.padframes);
+    }
+    gdi_writer.flush().map_err(|_| ChdError::InvalidFile)?;
     Ok(())
 }
 

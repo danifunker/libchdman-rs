@@ -252,6 +252,7 @@ extern "C" {
     pub fn chd_shim_cdrom_num_tracks(c: *const ChdShimCdrom) -> u32;
     pub fn chd_shim_cdrom_get_track(c: *const ChdShimCdrom, i: u32, out: *mut ChdShimTrack);
     pub fn chd_shim_cdrom_get_track_start(c: *const ChdShimCdrom, track: u32) -> u32;
+    pub fn chd_shim_cdrom_get_track_start_phys(c: *const ChdShimCdrom, track: u32) -> u32;
     pub fn chd_shim_cdrom_read_data(
         c: *mut ChdShimCdrom,
         lba: u32,

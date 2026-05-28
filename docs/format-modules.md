@@ -159,6 +159,13 @@ Defaults: hunk_size 19584 (8 frames × 2448 bytes), codecs `[cdlz, cdzl, cdfl, 0
 - [`extract_to_iso`] requires a single MODE1/MODE1_RAW track and emits
   cooked 2048-byte sectors. For multi-track or audio-bearing CHDs,
   use `extract_to_cue`.
+- [`extract_to_gdi`] writes a Sega GD-ROM `.gdi` index plus per-track
+  split files (`<stem>NN.bin` for data, `<stem>NN.raw` for audio),
+  matching chdman's `MODE_GDI` output. Audio is byte-swapped back to
+  little-endian for v5+ CHDs and `splitframes` pregap data is pulled
+  across track boundaries; subcode is dropped (GDI cannot carry it). A
+  `.gdi` round-trips: feeding it to `create_from_cue` produces a GD-ROM
+  CHD (reports `is_gd`), and `extract_to_gdi` reproduces the track files.
 
 ## `copy`
 
