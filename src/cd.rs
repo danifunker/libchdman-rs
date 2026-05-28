@@ -556,7 +556,11 @@ pub fn extract_to_gdi(
 
         // GDI index line: track# lba type datasize "file" offset.
         let gdi_type = if is_audio { 0 } else { 4 };
-        let q = if track_filename.contains(' ') { "\"" } else { "" };
+        let q = if track_filename.contains(' ') {
+            "\""
+        } else {
+            ""
+        };
         writeln!(
             gdi_writer,
             "{} {} {} {} {}{}{} 0",
