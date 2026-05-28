@@ -51,7 +51,7 @@ prebuilt matrix — depend on the git repo:
 
 ```toml
 [dependencies]
-libchdman-rs = { git = "https://github.com/danifunker/libchdman-rs", tag = "v0.288.0-l1" }
+libchdman-rs = { git = "https://github.com/danifunker/libchdman-rs", tag = "v0.288.0" }
 ```
 
 The git dependency includes the full vendored MAME source tree
@@ -334,9 +334,10 @@ The downloaded archive is cached under:
 
 ## Versioning
 
-The crate version tracks the MAME release it embeds, with a `-lN` suffix
-for libchdman-rs releases against that MAME version. For example,
-`0.287.0-l1` is the first libchdman-rs release built on MAME 0.287.0.
+The crate version matches the MAME release it embeds — for example,
+`0.288.0` embeds MAME 0.288. If a wrapper-only fix is needed against the
+same MAME version, the patch component is bumped (`0.288.1`, `0.288.2`,
+...).
 
 ## Testing
 

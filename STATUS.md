@@ -1,7 +1,7 @@
 # Current Implementation Status
 
 Date: 2026-05-28
-Version: 0.288.0-l1
+Version: 0.288.0
 
 ## Completed
 - [x] Full integration of MAME 0.288.0 CHD core.

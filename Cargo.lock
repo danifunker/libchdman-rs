@@ -575,7 +575,7 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
 name = "libchdman-rs"
-version = "0.288.0-l1"
+version = "0.288.0"
 dependencies = [
  "cc",
  "hex",

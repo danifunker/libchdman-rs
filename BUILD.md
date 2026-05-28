@@ -8,18 +8,19 @@ The workflow only creates the tag after every build cell succeeds, so
 a failed build leaves no tag and no release behind.
 
 1. Update the MAME submodule (`deps/mame`) to the new MAME version.
-2. Bump `version` in `Cargo.toml`. The version becomes the release tag,
-   so use something parseable like `0.287.0-l3` (the `-l3` suffix is the
-   libchdman-rs revision against that MAME version).
+2. Bump `version` in `Cargo.toml` to match the MAME version (e.g.
+   `0.288.0` embeds MAME 0.288). The version becomes the release tag.
+   For a wrapper-only fix against the same MAME version, bump the patch
+   component (`0.288.1`, `0.288.2`, ...).
 3. Update notes/changelog with anything that affects the wrapper.
 4. Commit and push the branch (no tag yet):
    ```bash
-   git commit -am "Bump to 0.287.0-l3 (MAME 0.287)"
+   git commit -am "Bump to 0.288.0 (MAME 0.288)"
    git push origin main
    ```
 5. In the GitHub UI, go to **Actions → "Build prebuilt static archives"
    → Run workflow**, select the branch, and enter the tag name
-   (e.g. `v0.287.0-l3`). The workflow:
+   (e.g. `v0.288.0`). The workflow:
    - **Preflight** validates: tag starts with `v`, `Cargo.toml` version
      matches the tag, and the tag/release doesn't already exist. Bails
      out fast if any of those fail.
@@ -125,7 +126,7 @@ parallel to it. Order:
 
 1. Bump `version` in `Cargo.toml`, commit, push to `main`.
 2. Dispatch `Build prebuilt static archives` for the new tag (e.g.
-   `v0.288.0-l1`). Wait for it to finish — this is what actually
+   `v0.288.0`). Wait for it to finish — this is what actually
    creates the git tag and the GitHub Release with all 16 assets.
 3. Dispatch `Publish to crates.io` with the same tag. The preflight
    job confirms the release exists with 16 assets, validates the
@@ -134,13 +135,13 @@ parallel to it. Order:
 
 ```bash
 # Dispatch the prebuilt build:
-gh workflow run release-prebuilt.yml --ref main -f tag=v0.288.0-l1
+gh workflow run release-prebuilt.yml --ref main -f tag=v0.288.0
 
 # After it succeeds, dispatch the crates.io publish:
-gh workflow run publish-crates-io.yml -f tag=v0.288.0-l1
+gh workflow run publish-crates-io.yml -f tag=v0.288.0
 
 # Or use dry_run=true to validate without uploading:
-gh workflow run publish-crates-io.yml -f tag=v0.288.0-l1 -f dry_run=true
+gh workflow run publish-crates-io.yml -f tag=v0.288.0 -f dry_run=true
 ```
 
 ### Local dry-run before tagging
