@@ -8,7 +8,7 @@ This crate is locked to a specific version of MAME to ensure compatibility and c
    ```bash
    cd deps/mame
    git fetch --tags
-   git checkout mame0287 # Replace with new version
+   git checkout mame0288 # Replace with new version
    ```
 
 2. Update the crate version in `Cargo.toml` to match the MAME version.

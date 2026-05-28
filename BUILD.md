@@ -125,7 +125,7 @@ parallel to it. Order:
 
 1. Bump `version` in `Cargo.toml`, commit, push to `main`.
 2. Dispatch `Build prebuilt static archives` for the new tag (e.g.
-   `v0.287.0-l7`). Wait for it to finish — this is what actually
+   `v0.288.0-l1`). Wait for it to finish — this is what actually
    creates the git tag and the GitHub Release with all 16 assets.
 3. Dispatch `Publish to crates.io` with the same tag. The preflight
    job confirms the release exists with 16 assets, validates the
@@ -134,13 +134,13 @@ parallel to it. Order:
 
 ```bash
 # Dispatch the prebuilt build:
-gh workflow run release-prebuilt.yml --ref main -f tag=v0.287.0-l7
+gh workflow run release-prebuilt.yml --ref main -f tag=v0.288.0-l1
 
 # After it succeeds, dispatch the crates.io publish:
-gh workflow run publish-crates-io.yml -f tag=v0.287.0-l7
+gh workflow run publish-crates-io.yml -f tag=v0.288.0-l1
 
 # Or use dry_run=true to validate without uploading:
-gh workflow run publish-crates-io.yml -f tag=v0.287.0-l7 -f dry_run=true
+gh workflow run publish-crates-io.yml -f tag=v0.288.0-l1 -f dry_run=true
 ```
 
 ### Local dry-run before tagging

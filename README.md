@@ -31,7 +31,7 @@ If you don't need to compile MAME from source — and you almost never do
 
 ```toml
 [dependencies]
-libchdman-rs = { version = "0.287", features = ["prebuilt"] }
+libchdman-rs = { version = "0.288", features = ["prebuilt"] }
 ```
 
 The `prebuilt` feature downloads a pre-built static archive matching
@@ -51,7 +51,7 @@ prebuilt matrix — depend on the git repo:
 
 ```toml
 [dependencies]
-libchdman-rs = { git = "https://github.com/danifunker/libchdman-rs", tag = "v0.287.0-l6" }
+libchdman-rs = { git = "https://github.com/danifunker/libchdman-rs", tag = "v0.288.0-l1" }
 ```
 
 The git dependency includes the full vendored MAME source tree
@@ -275,7 +275,7 @@ skip the C++ compile entirely.
 Enable the `prebuilt` feature in your `Cargo.toml`:
 
 ```toml
-libchdman-rs = { version = "0.287", features = ["prebuilt"] }
+libchdman-rs = { version = "0.288", features = ["prebuilt"] }
 ```
 
 On `cargo build`, the build script downloads the archive matching your
