@@ -80,8 +80,28 @@ static void worker_thread(osd_work_queue* queue, int threadid) {
 
 osd_work_queue* osd_work_queue_alloc(int flags) {
     auto q = new osd_work_queue();
-    int num_threads = (flags & WORK_QUEUE_FLAG_MULTI) ? std::thread::hardware_concurrency() : 1;
-    if (num_threads == 0) num_threads = 1;
+    int num_threads = 1;
+    if (flags & WORK_QUEUE_FLAG_MULTI) {
+        // Test-only override: lets the regression suite simulate a
+        // high-core host on a small-core CI runner so that the cap below
+        // is actually exercised. Never honored if unset (production path).
+        if (const char* force = std::getenv("LIBCHDMAN_TEST_FORCE_NPROC")) {
+            int forced = std::atoi(force);
+            num_threads = (forced > 0) ? forced : (int)std::thread::hardware_concurrency();
+        } else {
+            num_threads = (int)std::thread::hardware_concurrency();
+        }
+        if (num_threads == 0) num_threads = 1;
+    }
+    // MAME's chd_file_compressor (lib/util/chd.cpp) declares
+    // codec_class m_codecs[WORK_BUFFER_THREADS] with WORK_BUFFER_THREADS=4
+    // and asserts threadid < std::size(m_codecs) in async_compress_hunk.
+    // The threadid we hand to callbacks is the worker thread's index, so
+    // on machines with >4 cores we'd overflow that array — observed as a
+    // hard assert/STATUS_STACK_BUFFER_OVERRUN on a 20-CPU Windows host.
+    // Cap at 4 to keep us within the contract.
+    constexpr int MAX_WORKER_THREADS = 4;
+    if (num_threads > MAX_WORKER_THREADS) num_threads = MAX_WORKER_THREADS;
     for (int i = 0; i < num_threads; i++) {
         q->threads.emplace_back(worker_thread, q, i);
     }
