@@ -382,12 +382,18 @@ fn try_use_prebuilt() -> Result<(), String> {
     let glibc_suffix = if is_linux_gnu {
         let raw = std::env::var("LIBCHDMAN_GLIBC").unwrap_or_else(|_| "auto".into());
         let chosen = match raw.as_str() {
-            "auto" | "" => "2.35",
-            "2.35" | "2.39" => raw.as_str(),
+            "auto" | "" => {
+                // armv7 ships only a glibc2.31 prebuilt (MiSTer / Cortex-A9).
+                // x86_64 and aarch64 default to the 2.35 floor.
+                if target.contains("armv7") { "2.31" } else { "2.35" }
+            }
+            "2.31" | "2.35" | "2.39" => raw.as_str(),
             other => {
                 return Err(format!(
-                    "LIBCHDMAN_GLIBC={other} not recognized (expected 2.35, 2.39, or auto). \
-                     The 2.31 floor was dropped when GitHub retired ubuntu-20.04 runners."
+                    "LIBCHDMAN_GLIBC={other} not recognized \
+                     (expected 2.31, 2.35, 2.39, or auto). \
+                     The 2.31 floor is available for armv7 only; \
+                     x86_64/aarch64 minimum is 2.35."
                 ));
             }
         };

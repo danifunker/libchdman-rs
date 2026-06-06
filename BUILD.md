@@ -37,16 +37,21 @@ the workflow again with the same tag input.
 
 ## What the workflow builds
 
-For each tag, the workflow produces 8 archive files plus 8 `.sha256`
+For each tag, the workflow produces 9 archive files plus 9 `.sha256`
 sidecars:
 
-- 4 Linux archives: `(x86_64, aarch64) × (glibc2.35, glibc2.39)`
+- 4 Linux x86_64/aarch64 archives: `(x86_64, aarch64) × (glibc2.35, glibc2.39)`
+- 1 Linux armv7 archive: `armv7-unknown-linux-gnueabihf-glibc2.31`
+  (cross-compiled in an `ubuntu:20.04` container; targets MiSTer /
+  Cyclone V Cortex-A9 systems running glibc 2.31)
 - 2 macOS archives: `x86_64-apple-darwin` (on `macos-15-intel`),
   `aarch64-apple-darwin` (on `macos-latest`)
 - 2 Windows archives: `x86_64-pc-windows-msvc`, `i686-pc-windows-msvc`
 
-The previous `glibc2.31` floor was retired when GitHub deprecated the
-`ubuntu-20.04` runner image; the bottom supported floor is now 2.35.
+The glibc2.31 floor for x86_64/aarch64 was retired when GitHub deprecated
+the `ubuntu-20.04` runner image. For armv7, glibc2.31 is still produced by
+cross-compiling inside an `ubuntu:20.04` Docker container (no native runner
+needed), which carries the correct ARM sysroot.
 
 Each archive is a single fat static library — the workflow merges the six
 component `.a` / `.lib` files that `build.rs` produces (chd_shim plus the

@@ -226,8 +226,82 @@ jobs:
           name: windows-${{ matrix.target }}
           path: out/*
 
+  build-linux-armv7:
+    needs: preflight
+    name: Linux armv7-unknown-linux-gnueabihf / glibc2.31
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:20.04
+    steps:
+      # Install before checkout: actions/checkout needs git, and the
+      # arm cross-toolchain in ubuntu:20.04 ships with a glibc 2.31
+      # sysroot — the right floor for MiSTer (Cortex-A9 / glibc 2.31).
+      - name: Install system dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends \
+            curl ca-certificates git \
+            gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
+            binutils-arm-linux-gnueabihf
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: armv7-unknown-linux-gnueabihf
+      - name: Configure Cargo linker
+        run: |
+          mkdir -p .cargo
+          printf '[target.armv7-unknown-linux-gnueabihf]\nlinker = "arm-linux-gnueabihf-gcc"\n' \
+            > .cargo/config.toml
+      - name: Build
+        env:
+          CC_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-gcc
+          CXX_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-g++
+          AR_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-ar
+        run: cargo build --release --target armv7-unknown-linux-gnueabihf
+      - name: Merge static libs into single archive
+        run: |
+          set -euo pipefail
+          builddir=$(ls -d target/armv7-unknown-linux-gnueabihf/release/build/libchdman-rs-*/out | head -1)
+          if [ -z "${builddir:-}" ]; then
+            echo "ERROR: build output dir not found"
+            find target/armv7-unknown-linux-gnueabihf/release/build -maxdepth 3 -type d || true
+            exit 1
+          fi
+          echo "Found build output at: $builddir"
+          mkdir -p out
+          name="libchdman_rs-armv7-unknown-linux-gnueabihf-glibc2.31.a"
+          script=$(mktemp)
+          {
+            echo "create out/$name"
+            for f in "$builddir"/lib*.a; do
+              echo "addlib $f"
+            done
+            echo "save"
+            echo "end"
+          } > "$script"
+          ar -M < "$script"
+          ranlib "out/$name" || true
+          (cd out && sha256sum "$name" > "$name.sha256")
+      - name: Validate archive
+        run: scripts/validate-archive.sh "out/libchdman_rs-armv7-unknown-linux-gnueabihf-glibc2.31.a"
+      - name: Smoke test — link prebuilt and build example
+        # armv7 binaries cannot execute on the x86_64 host; build only.
+        env:
+          LIBCHDMAN_PREBUILT_LOCAL_ARCHIVE: ${{ github.workspace }}/out/libchdman_rs-armv7-unknown-linux-gnueabihf-glibc2.31.a
+        run: |
+          rm -rf target/armv7-unknown-linux-gnueabihf/release/examples
+          cargo build --release --features prebuilt --target armv7-unknown-linux-gnueabihf --example check-prebuilt
+      - uses: actions/upload-artifact@v6
+        with:
+          name: linux-armv7-unknown-linux-gnueabihf-glibc2.31
+          path: out/*
+
   release:
-    needs: [preflight, build-linux, build-macos, build-windows]
+    needs: [preflight, build-linux, build-linux-armv7, build-macos, build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
