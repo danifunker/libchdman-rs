@@ -245,7 +245,7 @@ jobs:
         run: |
           apt-get update -qq
           apt-get install -y --no-install-recommends \
-            curl ca-certificates git \
+            curl ca-certificates git file \
             gcc g++ \
             gcc-10-arm-linux-gnueabihf g++-10-arm-linux-gnueabihf \
             binutils-arm-linux-gnueabihf
