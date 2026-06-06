@@ -180,16 +180,31 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      # ckormanyos/msvc-dev-cmd is a fork of ilammy/msvc-dev-cmd that bumps
-      # action.yml to `using: node24` (open as a PR upstream; the original
-      # repo appears unmaintained). Its lib.js — including the PATH fix that
-      # keeps MSVC's link.exe ahead of Git's coreutils link.exe — is
-      # byte-identical to the ilammy commit 0b201ec we previously pinned, so
-      # behavior is unchanged but the Node 20 deprecation warning is gone.
-      # Pinned to the fork's commit SHA (the repo has no release tags).
-      - uses: ckormanyos/msvc-dev-cmd@053032274f22394d2fbe5a2f74beb908d2d6e31a # node24, lib.js == ilammy 0b201ec
-        with:
-          arch: ${{ matrix.target == 'i686-pc-windows-msvc' && 'x86' || 'x64' }}
+      # Set up the MSVC developer environment without a third-party action.
+      # We previously used ilammy/msvc-dev-cmd (node20, deprecated) and tried
+      # the ckormanyos fork (node24 but it doesn't vendor node_modules, so it
+      # crashes with "Cannot find module '@actions/core'"). Instead, drive
+      # Microsoft's own Microsoft.VisualStudio.DevShell.dll (preinstalled on
+      # windows-latest) via Enter-VsDevShell and persist the resulting env to
+      # $GITHUB_ENV. This puts MSVC's cl.exe/lib.exe (and its link.exe, ahead
+      # of Git's coreutils link.exe) on PATH for later steps. No node runtime,
+      # so no Node deprecation warnings.
+      - name: Set up MSVC developer environment
+        shell: pwsh
+        run: |
+          $arch = if ("${{ matrix.target }}" -eq 'i686-pc-windows-msvc') { 'x86' } else { 'x64' }
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -property installationPath
+          $before = @{}
+          Get-ChildItem env: | ForEach-Object { $before[$_.Name] = $_.Value }
+          Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments "-arch=$arch -host_arch=x64 -no_logo"
+          # Export only the variables Enter-VsDevShell added or changed.
+          Get-ChildItem env: | ForEach-Object {
+            if ($before[$_.Name] -ne $_.Value) {
+              "$($_.Name)=$($_.Value)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            }
+          }
       - run: cargo build --release --target ${{ matrix.target }}
       - name: Merge static libs into single archive
         shell: bash
