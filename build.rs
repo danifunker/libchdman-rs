@@ -505,14 +505,15 @@ fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
         if attempt > 0 {
             std::thread::sleep(Duration::from_secs(1u64 << (attempt - 1)));
         }
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(Duration::from_secs(30))
-            .timeout(Duration::from_secs(300))
-            .build();
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_connect(Some(Duration::from_secs(30)))
+            .timeout_global(Some(Duration::from_secs(300)))
+            .build()
+            .into();
         match agent.get(url).call() {
             Ok(resp) => {
                 let mut buf = Vec::new();
-                if let Err(e) = resp.into_reader().read_to_end(&mut buf) {
+                if let Err(e) = resp.into_body().into_reader().read_to_end(&mut buf) {
                     last_err = format!("read body: {e}");
                     continue;
                 }
