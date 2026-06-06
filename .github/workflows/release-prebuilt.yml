@@ -180,13 +180,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      # Pinned to the exact commit that the `@v1` floating tag currently
-      # resolves to (newer than the v1.13.0 release tag — v1.13.0 has a
-      # PATH-handling bug that causes cargo to find Git's coreutils
-      # link.exe instead of MSVC's). Upstream's action.yml still uses
-      # `node20`, so GH Actions will emit a Node 24 deprecation warning
-      # until they cut a new release.
-      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1 @ 2025-XX
+      # ckormanyos/msvc-dev-cmd is a fork of ilammy/msvc-dev-cmd that bumps
+      # action.yml to `using: node24` (open as a PR upstream; the original
+      # repo appears unmaintained). Its lib.js — including the PATH fix that
+      # keeps MSVC's link.exe ahead of Git's coreutils link.exe — is
+      # byte-identical to the ilammy commit 0b201ec we previously pinned, so
+      # behavior is unchanged but the Node 20 deprecation warning is gone.
+      # Pinned to the fork's commit SHA (the repo has no release tags).
+      - uses: ckormanyos/msvc-dev-cmd@053032274f22394d2fbe5a2f74beb908d2d6e31a # node24, lib.js == ilammy 0b201ec
         with:
           arch: ${{ matrix.target == 'i686-pc-windows-msvc' && 'x86' || 'x64' }}
       - run: cargo build --release --target ${{ matrix.target }}
