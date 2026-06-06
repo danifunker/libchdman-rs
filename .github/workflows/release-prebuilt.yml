@@ -50,7 +50,6 @@ jobs:
           echo "OK: tag '$tag' is free; Cargo.toml version matches."
 
   build-linux:
-    if: false  # temporarily disabled while debugging armv7
     needs: preflight
     name: Linux ${{ matrix.target }} / ${{ matrix.glibc }}
     runs-on: ${{ matrix.runs_on }}
@@ -121,7 +120,6 @@ jobs:
           path: out/*
 
   build-macos:
-    if: false  # temporarily disabled while debugging armv7
     needs: preflight
     name: macOS ${{ matrix.target }}
     runs-on: ${{ matrix.runs_on }}
@@ -168,7 +166,6 @@ jobs:
           path: out/*
 
   build-windows:
-    if: false  # temporarily disabled while debugging armv7
     needs: preflight
     name: Windows ${{ matrix.target }}
     runs-on: windows-latest
@@ -314,7 +311,6 @@ jobs:
           path: out/*
 
   release:
-    if: false  # temporarily disabled while debugging armv7
     needs: [preflight, build-linux, build-linux-armv7, build-macos, build-windows]
     runs-on: ubuntu-latest
     steps:
