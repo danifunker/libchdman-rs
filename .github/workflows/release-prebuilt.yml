@@ -249,6 +249,10 @@ jobs:
             gcc g++ \
             gcc-10-arm-linux-gnueabihf g++-10-arm-linux-gnueabihf \
             binutils-arm-linux-gnueabihf
+          # Provide unversioned symlinks so cc-rs and other build scripts
+          # that look up arm-linux-gnueabihf-gcc find the GCC 10 binary.
+          ln -sf /usr/bin/arm-linux-gnueabihf-gcc-10 /usr/bin/arm-linux-gnueabihf-gcc
+          ln -sf /usr/bin/arm-linux-gnueabihf-g++-10 /usr/bin/arm-linux-gnueabihf-g++
       # The GH Actions runner sets HOME=/github/home inside containers, but
       # the container user is root (home /root). rustup rejects that mismatch.
       - name: Fix HOME for root user in container
