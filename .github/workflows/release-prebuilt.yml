@@ -50,6 +50,7 @@ jobs:
           echo "OK: tag '$tag' is free; Cargo.toml version matches."
 
   build-linux:
+    if: false  # temporarily disabled while debugging armv7
     needs: preflight
     name: Linux ${{ matrix.target }} / ${{ matrix.glibc }}
     runs-on: ${{ matrix.runs_on }}
@@ -120,6 +121,7 @@ jobs:
           path: out/*
 
   build-macos:
+    if: false  # temporarily disabled while debugging armv7
     needs: preflight
     name: macOS ${{ matrix.target }}
     runs-on: ${{ matrix.runs_on }}
@@ -166,6 +168,7 @@ jobs:
           path: out/*
 
   build-windows:
+    if: false  # temporarily disabled while debugging armv7
     needs: preflight
     name: Windows ${{ matrix.target }}
     runs-on: windows-latest
@@ -244,7 +247,7 @@ jobs:
           apt-get install -y --no-install-recommends \
             curl ca-certificates git \
             gcc g++ \
-            gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
+            gcc-10-arm-linux-gnueabihf g++-10-arm-linux-gnueabihf \
             binutils-arm-linux-gnueabihf
       # The GH Actions runner sets HOME=/github/home inside containers, but
       # the container user is root (home /root). rustup rejects that mismatch.
@@ -259,12 +262,12 @@ jobs:
       - name: Configure Cargo linker
         run: |
           mkdir -p .cargo
-          printf '[target.armv7-unknown-linux-gnueabihf]\nlinker = "arm-linux-gnueabihf-gcc"\n' \
+          printf '[target.armv7-unknown-linux-gnueabihf]\nlinker = "arm-linux-gnueabihf-gcc-10"\n' \
             > .cargo/config.toml
       - name: Build
         env:
-          CC_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-gcc
-          CXX_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-g++
+          CC_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-gcc-10
+          CXX_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-g++-10
           AR_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-ar
         run: cargo build --release --target armv7-unknown-linux-gnueabihf
       - name: Merge static libs into single archive
@@ -306,6 +309,7 @@ jobs:
           path: out/*
 
   release:
+    if: false  # temporarily disabled while debugging armv7
     needs: [preflight, build-linux, build-linux-armv7, build-macos, build-windows]
     runs-on: ubuntu-latest
     steps:
