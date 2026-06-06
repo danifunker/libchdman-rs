@@ -243,6 +243,7 @@ jobs:
           apt-get update -qq
           apt-get install -y --no-install-recommends \
             curl ca-certificates git \
+            gcc g++ \
             gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
             binutils-arm-linux-gnueabihf
       # The GH Actions runner sets HOME=/github/home inside containers, but
