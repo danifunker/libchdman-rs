@@ -17,7 +17,7 @@ jobs:
     outputs:
       tag: ${{ steps.check.outputs.tag }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Validate tag and version
         id: check
         env:
@@ -73,7 +73,7 @@ jobs:
             glibc: glibc2.39
             runs_on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
@@ -114,7 +114,7 @@ jobs:
         run: |
           rm -rf target/${{ matrix.target }}/release/examples
           cargo run --release --features prebuilt --target ${{ matrix.target }} --example check-prebuilt
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.target }}-${{ matrix.glibc }}
           path: out/*
@@ -137,7 +137,7 @@ jobs:
     env:
       MACOSX_DEPLOYMENT_TARGET: '10.13'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
@@ -160,7 +160,7 @@ jobs:
         run: |
           rm -rf target/${{ matrix.target }}/release/examples
           cargo run --release --features prebuilt --target ${{ matrix.target }} --example check-prebuilt
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: macos-${{ matrix.target }}
           path: out/*
@@ -174,7 +174,7 @@ jobs:
       matrix:
         target: [x86_64-pc-windows-msvc, i686-pc-windows-msvc]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
@@ -221,7 +221,7 @@ jobs:
             Remove-Item -Recurse -Force "target/${{ matrix.target }}/release/examples"
           }
           cargo run --release --features prebuilt --target ${{ matrix.target }} --example check-prebuilt
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-${{ matrix.target }}
           path: out/*
@@ -254,7 +254,7 @@ jobs:
       # the container user is root (home /root). rustup rejects that mismatch.
       - name: Fix HOME for root user in container
         run: echo "HOME=/root" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
@@ -305,7 +305,7 @@ jobs:
         run: |
           rm -rf target/armv7-unknown-linux-gnueabihf/release/examples
           cargo build --release --features prebuilt --target armv7-unknown-linux-gnueabihf --example check-prebuilt
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-armv7-unknown-linux-gnueabihf-glibc2.31
           path: out/*
@@ -314,8 +314,8 @@ jobs:
     needs: [preflight, build-linux, build-linux-armv7, build-macos, build-windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v7
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
       - name: Flatten artifacts
@@ -324,7 +324,7 @@ jobs:
           find artifacts -type f \( -name '*.a' -o -name '*.lib' -o -name '*.sha256' \) -exec cp {} release-assets/ \;
           ls -la release-assets/
       - name: Create release (and tag at this commit)
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.preflight.outputs.tag }}
           target_commitish: ${{ github.sha }}
