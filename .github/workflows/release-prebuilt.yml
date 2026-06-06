@@ -271,6 +271,7 @@ jobs:
           AR_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-ar
         run: cargo build --release --target armv7-unknown-linux-gnueabihf
       - name: Merge static libs into single archive
+        shell: bash
         run: |
           set -euo pipefail
           builddir=$(ls -d target/armv7-unknown-linux-gnueabihf/release/build/libchdman-rs-*/out | head -1)
