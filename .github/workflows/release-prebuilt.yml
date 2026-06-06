@@ -245,6 +245,10 @@ jobs:
             curl ca-certificates git \
             gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
             binutils-arm-linux-gnueabihf
+      # The GH Actions runner sets HOME=/github/home inside containers, but
+      # the container user is root (home /root). rustup rejects that mismatch.
+      - name: Fix HOME for root user in container
+        run: echo "HOME=/root" >> "$GITHUB_ENV"
       - uses: actions/checkout@v5
         with:
           submodules: recursive
