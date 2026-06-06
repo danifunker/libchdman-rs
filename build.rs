@@ -385,7 +385,11 @@ fn try_use_prebuilt() -> Result<(), String> {
             "auto" | "" => {
                 // armv7 ships only a glibc2.31 prebuilt (MiSTer / Cortex-A9).
                 // x86_64 and aarch64 default to the 2.35 floor.
-                if target.contains("armv7") { "2.31" } else { "2.35" }
+                if target.contains("armv7") {
+                    "2.31"
+                } else {
+                    "2.35"
+                }
             }
             "2.31" | "2.35" | "2.39" => raw.as_str(),
             other => {
