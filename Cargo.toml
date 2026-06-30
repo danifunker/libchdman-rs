@@ -1,10 +1,10 @@
 [package]
 name = "libchdman-rs"
-version = "0.288.7"
+version = "0.288.8"
 edition = "2021"
 authors = ["danifunker"]
 description = "Rust wrapper around MAME's CHD (Compressed Hunks of Data) core. Supports CD/DVD/HD CHD read+write and ships pre-built static archives via the `prebuilt` feature for fast CI builds."
-license = "GPL-2.0-only"
+license = "BSD-3-Clause"
 repository = "https://github.com/danifunker/libchdman-rs"
 homepage = "https://github.com/danifunker/libchdman-rs"
 documentation = "https://docs.rs/libchdman-rs"

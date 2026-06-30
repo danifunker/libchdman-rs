@@ -367,4 +367,13 @@ for the same input.
 
 ## License
 
-This crate is licensed under the same terms as MAME (BSD-3-Clause).
+This crate is licensed under the [BSD 3-Clause License](LICENSE).
+
+The MAME *project* as a whole is distributed under GPL-2.0+, but that is an
+aggregate license. The specific CHD core files this crate vendors and compiles
+(`src/lib/util/chd.cpp`, `chdcodec.cpp`, `cdrom.cpp`, and their supporting
+utility files) each carry an individual `// license:BSD-3-Clause` SPDX header
+(`md5.cpp` is Public Domain). The bundled third-party codecs are likewise
+permissive (zlib, libFLAC — BSD-3, LZMA — Public Domain, Zstandard — BSD-3,
+utf8proc — MIT). None of the compiled code is GPL-licensed, so the wrapper and
+the prebuilt static archives are distributable under BSD-3-Clause terms.
