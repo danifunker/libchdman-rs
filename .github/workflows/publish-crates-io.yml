@@ -46,9 +46,10 @@ jobs:
         run: |
           set -euo pipefail
           tag="$INPUT_TAG"
-          # 9 archives (4 Linux x86_64/aarch64 + 1 Linux armv7 + 2 macOS + 2 Windows)
-          # + 9 sha256 sidecars = 18. Adjust if release-prebuilt.yml matrix changes.
-          expected=18
+          # 12 archives (4 Linux x86_64/aarch64 + 1 Linux armv7 + 2 Linux riscv64
+          # + 2 macOS + 3 Windows) + 12 sha256 sidecars = 24. Adjust if
+          # release-prebuilt.yml matrix changes.
+          expected=24
           got=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length' 2>/dev/null || echo 0)
           if [ "$got" -lt "$expected" ]; then
             echo "::error::Release $tag has $got assets, expected $expected."
