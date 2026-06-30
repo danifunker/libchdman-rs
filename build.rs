@@ -56,6 +56,7 @@ See the README's \"Choosing between crates.io and git\" section.
 
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
 
     // Silences MAME / 3rdparty C/C++ diagnostics across GCC/Clang/MSVC.
     // We don't own this code; its warnings are noise we can't act on.
@@ -198,7 +199,11 @@ See the README's \"Choosing between crates.io and git\" section.
         flac_build.flag("-msse4.2");
         flac_build.flag("-mavx2");
         flac_build.flag("-mfma");
-    } else if target_arch == "aarch64" {
+    } else if target_arch == "aarch64" && target_env != "msvc" {
+        // FLAC's NEON intrinsics are GCC/Clang-only: lpc_intrin_neon.c pulls
+        // in <arm_neon.h> with GCC-style code that MSVC's ARM64 compiler
+        // rejects. On aarch64-pc-windows-msvc we drop the file and disable
+        // the NEON path entirely via FLAC__NO_ASM below (portable C fallback).
         flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/lpc_intrin_neon.c");
     }
 
@@ -220,6 +225,16 @@ See the README's \"Choosing between crates.io and git\" section.
     flac_build.define("HAVE_STDLIB_H", Some("1"));
     flac_build.define("HAVE_STRING_H", Some("1"));
     flac_build.define("SIZE_T_MAX", Some("UINT64_MAX"));
+    if target_arch == "aarch64" && target_env == "msvc" {
+        // MSVC ARM64 (_M_ARM64) makes FLAC's bundled config.h enable the NEON
+        // path (FLAC__HAS_NEONINTRIN), but those intrinsics don't compile
+        // under cl.exe and we don't ship the .c file (see above). config.h
+        // lives in the pinned upstream MAME submodule, so we can't edit it;
+        // instead define FLAC__NO_ASM, which gates out both the NEON symbol
+        // declarations (lpc.h) and their dispatch in stream_encoder.c. FLAC
+        // then uses its portable C path — correct, just unoptimized for LPC.
+        flac_build.define("FLAC__NO_ASM", None);
+    }
     if target_os == "windows" {
         // Building FLAC statically: prevent headers from marking APIs as dllimport.
         flac_build.define("FLAC__NO_DLL", None);
