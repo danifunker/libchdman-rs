@@ -168,11 +168,27 @@ jobs:
   build-windows:
     needs: preflight
     name: Windows ${{ matrix.target }}
-    runs-on: windows-latest
+    runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
       matrix:
-        target: [x86_64-pc-windows-msvc, i686-pc-windows-msvc]
+        include:
+          - target: x86_64-pc-windows-msvc
+            runs_on: windows-latest
+            vs_arch: x64
+            vs_host_arch: x64
+          - target: i686-pc-windows-msvc
+            runs_on: windows-latest
+            vs_arch: x86
+            vs_host_arch: x64
+          # Native Arm64 runner (GitHub-hosted, free for public repos, GA
+          # since 2025-08). The Arm64 host's default rustup toolchain is
+          # aarch64-pc-windows-msvc, so this builds and smoke-tests natively
+          # rather than cross-compiling.
+          - target: aarch64-pc-windows-msvc
+            runs_on: windows-11-arm
+            vs_arch: arm64
+            vs_host_arch: arm64
     steps:
       - uses: actions/checkout@v6
         with:
@@ -192,13 +208,14 @@ jobs:
       - name: Set up MSVC developer environment
         shell: pwsh
         run: |
-          $arch = if ("${{ matrix.target }}" -eq 'i686-pc-windows-msvc') { 'x86' } else { 'x64' }
+          $arch = '${{ matrix.vs_arch }}'
+          $hostArch = '${{ matrix.vs_host_arch }}'
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vsPath = & $vswhere -latest -property installationPath
           $before = @{}
           Get-ChildItem env: | ForEach-Object { $before[$_.Name] = $_.Value }
           Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
-          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments "-arch=$arch -host_arch=x64 -no_logo"
+          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments "-arch=$arch -host_arch=$hostArch -no_logo"
           # Export only the variables Enter-VsDevShell added or changed.
           Get-ChildItem env: | ForEach-Object {
             if ($before[$_.Name] -ne $_.Value) {
