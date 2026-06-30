@@ -37,13 +37,17 @@ the workflow again with the same tag input.
 
 ## What the workflow builds
 
-For each tag, the workflow produces 10 archive files plus 10 `.sha256`
+For each tag, the workflow produces 12 archive files plus 12 `.sha256`
 sidecars:
 
 - 4 Linux x86_64/aarch64 archives: `(x86_64, aarch64) × (glibc2.35, glibc2.39)`
 - 1 Linux armv7 archive: `armv7-unknown-linux-gnueabihf-glibc2.31`
   (cross-compiled in an `ubuntu:20.04` container; targets MiSTer /
   Cyclone V Cortex-A9 systems running glibc 2.31)
+- 2 Linux riscv64 archives: `riscv64gc-unknown-linux-gnu-(glibc2.35, glibc2.39)`
+  (cross-compiled on the `ubuntu-22.04` / `ubuntu-24.04` runners — the same
+  images that set the x86_64/aarch64 floors; build-only smoke test since no
+  native RISC-V runner exists)
 - 2 macOS archives: `x86_64-apple-darwin` (on `macos-15-intel`),
   `aarch64-apple-darwin` (on `macos-latest`)
 - 3 Windows archives: `x86_64-pc-windows-msvc`, `i686-pc-windows-msvc`

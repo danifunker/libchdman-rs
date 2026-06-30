@@ -343,8 +343,90 @@ jobs:
           name: linux-armv7-unknown-linux-gnueabihf-glibc2.31
           path: out/*
 
+  build-linux-riscv64:
+    needs: preflight
+    name: Linux riscv64gc-unknown-linux-gnu / ${{ matrix.glibc }}
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # No native RISC-V runner exists, so cross-compile. The glibc floor of
+        # the produced archive is set by the build host's cross-sysroot, which
+        # tracks the runner's Ubuntu release — so map each floor to the GitHub
+        # runner that provides it (same images the x86_64/aarch64 jobs use).
+        # build.rs already routes riscv64 through the LIBCHDMAN_GLIBC logic
+        # (auto -> 2.35), so both floors are consumable without a code change.
+        include:
+          - glibc: glibc2.35
+            runs_on: ubuntu-22.04
+          - glibc: glibc2.39
+            runs_on: ubuntu-24.04
+    steps:
+      - name: Install RISC-V cross toolchain
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc-riscv64-linux-gnu g++-riscv64-linux-gnu binutils-riscv64-linux-gnu
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv64gc-unknown-linux-gnu
+      - name: Configure Cargo linker
+        run: |
+          mkdir -p .cargo
+          printf '[target.riscv64gc-unknown-linux-gnu]\nlinker = "riscv64-linux-gnu-gcc"\n' \
+            > .cargo/config.toml
+      - name: Build
+        env:
+          CC_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-gcc
+          CXX_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-g++
+          AR_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-ar
+        run: cargo build --release --target riscv64gc-unknown-linux-gnu
+      - name: Merge static libs into single archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          builddir=$(ls -d target/riscv64gc-unknown-linux-gnu/release/build/libchdman-rs-*/out | head -1)
+          if [ -z "${builddir:-}" ]; then
+            echo "ERROR: build output dir not found"
+            find target/riscv64gc-unknown-linux-gnu/release/build -maxdepth 3 -type d || true
+            exit 1
+          fi
+          echo "Found build output at: $builddir"
+          mkdir -p out
+          name="libchdman_rs-riscv64gc-unknown-linux-gnu-${{ matrix.glibc }}.a"
+          script=$(mktemp)
+          {
+            echo "create out/$name"
+            for f in "$builddir"/lib*.a; do
+              echo "addlib $f"
+            done
+            echo "save"
+            echo "end"
+          } > "$script"
+          ar -M < "$script"
+          ranlib "out/$name" || true
+          (cd out && sha256sum "$name" > "$name.sha256")
+      - name: Validate archive
+        run: scripts/validate-archive.sh "out/libchdman_rs-riscv64gc-unknown-linux-gnu-${{ matrix.glibc }}.a"
+      - name: Smoke test — link prebuilt and build example
+        # riscv64 binaries cannot execute on the x86_64 host; build only.
+        env:
+          LIBCHDMAN_PREBUILT_LOCAL_ARCHIVE: ${{ github.workspace }}/out/libchdman_rs-riscv64gc-unknown-linux-gnu-${{ matrix.glibc }}.a
+        run: |
+          rm -rf target/riscv64gc-unknown-linux-gnu/release/examples
+          cargo build --release --features prebuilt --target riscv64gc-unknown-linux-gnu --example check-prebuilt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-riscv64gc-unknown-linux-gnu-${{ matrix.glibc }}
+          path: out/*
+
   release:
-    needs: [preflight, build-linux, build-linux-armv7, build-macos, build-windows]
+    needs: [preflight, build-linux, build-linux-armv7, build-linux-riscv64, build-macos, build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

@@ -288,6 +288,7 @@ links it statically.
 |-------------------------------------|----------------------------------------|
 | `x86_64-unknown-linux-gnu`          | Three glibc floors (see below)         |
 | `aarch64-unknown-linux-gnu`         | Three glibc floors                     |
+| `riscv64gc-unknown-linux-gnu`       | Two glibc floors (2.35, 2.39); cross   |
 | `x86_64-apple-darwin`               | `MACOSX_DEPLOYMENT_TARGET=10.13`       |
 | `aarch64-apple-darwin`              | `MACOSX_DEPLOYMENT_TARGET=10.13`       |
 | `x86_64-pc-windows-msvc`            |                                        |
