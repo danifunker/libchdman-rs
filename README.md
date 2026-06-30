@@ -292,6 +292,7 @@ links it statically.
 | `aarch64-apple-darwin`              | `MACOSX_DEPLOYMENT_TARGET=10.13`       |
 | `x86_64-pc-windows-msvc`            |                                        |
 | `i686-pc-windows-msvc`              |                                        |
+| `aarch64-pc-windows-msvc`           | Native `windows-11-arm` build          |
 
 Targets not in the list (musl, BSD, anything exotic) fall back to source
 build automatically when `LIBCHDMAN_PREBUILT_FALLBACK=1` is set; otherwise

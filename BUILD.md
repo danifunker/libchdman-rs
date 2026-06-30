@@ -37,7 +37,7 @@ the workflow again with the same tag input.
 
 ## What the workflow builds
 
-For each tag, the workflow produces 9 archive files plus 9 `.sha256`
+For each tag, the workflow produces 10 archive files plus 10 `.sha256`
 sidecars:
 
 - 4 Linux x86_64/aarch64 archives: `(x86_64, aarch64) × (glibc2.35, glibc2.39)`
@@ -46,7 +46,10 @@ sidecars:
   Cyclone V Cortex-A9 systems running glibc 2.31)
 - 2 macOS archives: `x86_64-apple-darwin` (on `macos-15-intel`),
   `aarch64-apple-darwin` (on `macos-latest`)
-- 2 Windows archives: `x86_64-pc-windows-msvc`, `i686-pc-windows-msvc`
+- 3 Windows archives: `x86_64-pc-windows-msvc`, `i686-pc-windows-msvc`
+  (both on `windows-latest`), `aarch64-pc-windows-msvc` (built and
+  smoke-tested natively on the `windows-11-arm` runner; FLAC's NEON
+  intrinsics are disabled there — see `build.rs` — so it uses portable C)
 
 The glibc2.31 floor for x86_64/aarch64 was retired when GitHub deprecated
 the `ubuntu-20.04` runner image. For armv7, glibc2.31 is still produced by
