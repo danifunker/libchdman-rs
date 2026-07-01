@@ -316,16 +316,23 @@ pub fn extract_to_cue(
         .ok_or(ChdError::InvalidFile)?;
     writeln!(cue_writer, "FILE \"{}\" BINARY", bin_filename).map_err(|_| ChdError::InvalidFile)?;
 
+    // Pre-fetch every track: the split-frame handling in the read loop
+    // needs the previous track's geometry (frames/type/datasize), and
+    // reads go through physical CHD addressing.
+    let mut tracks = Vec::with_capacity(n_tracks as usize);
+    for i in 0..n_tracks {
+        let mut t = sys::ChdShimTrack::default();
+        unsafe { sys::chd_shim_cdrom_get_track(cdrom, i, &mut t) };
+        tracks.push(t);
+    }
+
     let mut sector = vec![0u8; RAW_SECTOR_SIZE];
     let mut written: u64 = 0;
     let mut frame_offset: u32 = 0;
 
-    for tracknum in 0..n_tracks {
-        let mut t = sys::ChdShimTrack::default();
-        unsafe { sys::chd_shim_cdrom_get_track(cdrom, tracknum, &mut t) };
-        let track_start = unsafe { sys::chd_shim_cdrom_get_track_start(cdrom, tracknum) };
+    for tracknum in 0..n_tracks as usize {
+        let t = tracks[tracknum];
         let trktype = TrackType::from_raw(t.trktype).unwrap_or(TrackType::Mode1);
-        let subtype = SubcodeType::from_raw(t.subtype).unwrap_or(SubcodeType::None);
 
         // CUE TRACK / INDEX block.
         let mode = match trktype {
@@ -364,23 +371,42 @@ pub fn extract_to_cue(
         }
 
         // Frame loop: emit `frames - padframes + splitframes` (matches
-        // chdman.cpp:2968), in this track's stored sector size.
+        // chdman.cpp:2968), reading via *physical* CHD addressing. The
+        // logical track start (`get_track_start`) is inflated over the
+        // physical one by cumulative pregap, so feeding it to a phys=true
+        // read walks past the track's stored frames and fails ~`pregap`
+        // frames early on CD-Extra / mixed-mode discs. Mirror chdman's
+        // `do_extract_cd` (chdman.cpp:2974-2987) and `extract_to_gdi`:
+        // use `get_track_start_phys`, and pull the first `splitframes`
+        // frames from the tail of the previous track.
+        let cur_phys = unsafe { sys::chd_shim_cdrom_get_track_start_phys(cdrom, tracknum as u32) };
+        let prev_phys = if tracknum > 0 {
+            unsafe { sys::chd_shim_cdrom_get_track_start_phys(cdrom, (tracknum - 1) as u32) }
+        } else {
+            0
+        };
+
         let actual_frames = t
             .frames
             .saturating_sub(t.padframes)
             .saturating_add(t.splitframes);
-        let drop_subcode = subtype != SubcodeType::None;
-        if drop_subcode {
-            // Subcode is intentionally dropped here (bin/cue can't carry it).
-        }
-        for f in 0..actual_frames {
-            let lba = track_start + f;
+        for frame in 0..actual_frames {
+            // First `splitframes` frames of this track live at the tail of
+            // the previous track (reverse of GD-ROM CHD construction).
+            let (src, lba) = if tracknum > 0 && frame < t.splitframes {
+                let prev = tracks[tracknum - 1];
+                let frameofs = prev.frames.wrapping_sub(t.splitframes).wrapping_add(frame);
+                (prev, prev_phys.wrapping_add(frameofs))
+            } else {
+                let frameofs = frame.wrapping_sub(t.splitframes);
+                (t, cur_phys.wrapping_add(frameofs))
+            };
             let ok = unsafe {
                 sys::chd_shim_cdrom_read_data(
                     cdrom,
                     lba,
                     sector.as_mut_ptr() as *mut _,
-                    t.trktype,
+                    src.trktype,
                     1, // phys=true: read at the physical CHD frame, like chdman
                 )
             };
@@ -388,9 +414,10 @@ pub fn extract_to_cue(
                 return Err(ChdError::InvalidData);
             }
 
-            let bytes_to_write = t.datasize as usize;
-            // Audio: byte-swap back to little-endian for CUE BINARY.
-            if trktype == TrackType::Audio {
+            let bytes_to_write = src.datasize as usize;
+            // Audio: byte-swap back to little-endian for CUE BINARY. chdman
+            // does this unconditionally for MODE_CUEBIN (chdman.cpp:2988).
+            if src.trktype == TrackType::Audio as u32 {
                 for i in (0..bytes_to_write).step_by(2) {
                     sector.swap(i, i + 1);
                 }
@@ -444,7 +471,12 @@ pub fn extract_to_iso(
     }
     let _guard = CdromGuard(cdrom);
 
-    let track_start = unsafe { sys::chd_shim_cdrom_get_track_start(cdrom, 0) };
+    // Physical start: reads go through the physical CHD frame (phys=true),
+    // so the loop must start at `physframeofs`, not the logical start.
+    // Harmless for a lone pregap-free data track (they coincide), but a
+    // track carrying a PREGAP has `logframeofs > physframeofs` and the
+    // logical start would walk past the stored frames. See `extract_to_cue`.
+    let track_start = unsafe { sys::chd_shim_cdrom_get_track_start_phys(cdrom, 0) };
     let f = File::create(iso_path).map_err(|_| ChdError::InvalidFile)?;
     let mut writer = BufWriter::with_capacity(64 * 1024, f);
 
@@ -703,6 +735,10 @@ fn track_type_str(t: TrackType) -> &'static str {
 pub struct CdCookedReader {
     chd: Chd,
     cdrom: *mut sys::ChdShimCdrom,
+    /// Physical CHD frame of the track's first stored sector
+    /// (`physframeofs`). Reads use `phys=true`, so this must be the
+    /// physical start — the logical start is inflated by cumulative
+    /// pregap on multi-track discs and would read the wrong frames.
     track_start: u32,
     total_frames: u32,
     pos: u64,
@@ -772,7 +808,7 @@ impl CdCookedReader {
         if cdrom.is_null() {
             return Err(ChdError::InvalidData);
         }
-        let track_start = unsafe { sys::chd_shim_cdrom_get_track_start(cdrom, track_index) };
+        let track_start = unsafe { sys::chd_shim_cdrom_get_track_start_phys(cdrom, track_index) };
         Ok(Self {
             chd,
             cdrom,

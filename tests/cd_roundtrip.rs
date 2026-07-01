@@ -242,7 +242,239 @@ fn cancellation_deletes_partial_cd_chd() {
     );
 }
 
+#[test]
+fn extract_to_cue_handles_pregaps_that_shift_logical_frames() {
+    // Regression for the CD-Extra / mixed-mode bug: multiple audio tracks
+    // each carrying a PREGAP push a track's *logical* frame offset above
+    // its *physical* one (logofs += pregap). extract_to_cue reads via
+    // physical CHD addressing (phys=true), so it must start each track at
+    // `get_track_start_phys`, not `get_track_start`. Before the fix, the
+    // logical start was fed to a physical read and the extraction ran off
+    // the end of the stored frames, dying ~`pregap` frames early with
+    // InvalidData. Here three audio tracks with pregaps reproduce that
+    // exact geometry; extraction must complete and round-trip byte-exact.
+    let dir = tmpdir();
+
+    // Deterministic per-track audio payloads (LE; MAME byte-swaps to BE on
+    // store, extract_to_cue swaps back, so the bytes must round-trip).
+    let make_bin = |seed: u32, frames: u32| -> Vec<u8> {
+        let mut x = seed.wrapping_mul(2654435761).wrapping_add(1);
+        let mut v = Vec::with_capacity((frames as usize) * 2352);
+        for _ in 0..(frames as usize) * 2352 {
+            x = x.wrapping_mul(1103515245).wrapping_add(12345);
+            v.push((x >> 16) as u8);
+        }
+        v
+    };
+    let frames = [30u32, 40, 50];
+    let seeds = [1u32, 7, 99];
+    let mut source = Vec::new();
+    for i in 0..3 {
+        let bin = make_bin(seeds[i], frames[i]);
+        source.extend_from_slice(&bin);
+        std::fs::write(dir.path().join(format!("t{}.bin", i + 1)), &bin).unwrap();
+    }
+
+    // Track 1 has no pregap; tracks 2 and 3 carry PREGAPs (pgdatasize == 0)
+    // so cumulative logofs diverges from physofs by the running pregap sum.
+    let cue = "\
+FILE \"t1.bin\" BINARY
+  TRACK 01 AUDIO
+    INDEX 01 00:00:00
+FILE \"t2.bin\" BINARY
+  TRACK 02 AUDIO
+    PREGAP 00:02:00
+    INDEX 01 00:00:00
+FILE \"t3.bin\" BINARY
+  TRACK 03 AUDIO
+    PREGAP 00:03:00
+    INDEX 01 00:00:00
+";
+    let cue_path = dir.path().join("cdextra.cue");
+    std::fs::write(&cue_path, cue).unwrap();
+
+    let chd_path = dir.path().join("cdextra.chd");
+    cd::create_from_cue(
+        &cue_path,
+        &chd_path,
+        CdCreateOptions::default(),
+        &mut |_| {},
+        &|| false,
+    )
+    .unwrap();
+
+    // Sanity: the CHD really has pregaps on later tracks (the bug trigger).
+    let chd = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+    let tracks = cd::list_tracks(&chd).unwrap();
+    assert_eq!(tracks.len(), 3);
+    assert!(
+        tracks[1].pregap > 0 && tracks[2].pregap > 0,
+        "fixture must carry pregaps to exercise the bug: {:?}",
+        tracks.iter().map(|t| t.pregap).collect::<Vec<_>>()
+    );
+    drop(chd);
+
+    let cue_out = dir.path().join("out.cue");
+    let bin_out = dir.path().join("out.bin");
+    let mut last = 0u64;
+    // Before the fix this returned Err(InvalidData) partway through track 3.
+    cd::extract_to_cue(&chd_path, &cue_out, &bin_out, &mut |b| last = b)
+        .expect("extract_to_cue must not fail on pregap-bearing audio tracks");
+
+    let extracted = std::fs::read(&bin_out).unwrap();
+    let total_frames: u32 = frames.iter().sum();
+    assert_eq!(
+        extracted.len() as u64,
+        total_frames as u64 * 2352,
+        "extracted bin must contain every stored frame"
+    );
+    assert_eq!(
+        last,
+        extracted.len() as u64,
+        "final progress == bytes written"
+    );
+    assert_eq!(
+        extracted, source,
+        "extracted audio must round-trip byte-exact to the source tracks"
+    );
+}
+
+#[test]
+fn extract_to_iso_handles_data_track_with_pregap() {
+    // A single MODE1 data track that carries a PREGAP has
+    // logframeofs > physframeofs. extract_to_iso reads via physical
+    // addressing (phys=true), so it must start at physframeofs. Before the
+    // fix the logical start walked past the stored frames -> InvalidData.
+    let dir = tmpdir();
+    let frames = 64usize;
+    let mut source = Vec::with_capacity(frames * 2048);
+    for s in 0..frames {
+        for i in 0..2048usize {
+            source.push(
+                (s.wrapping_mul(31)
+                    .wrapping_add(i.wrapping_mul(7))
+                    .wrapping_add(3)) as u8,
+            );
+        }
+    }
+    std::fs::write(dir.path().join("data.bin"), &source).unwrap();
+    let cue = "\
+FILE \"data.bin\" BINARY
+  TRACK 01 MODE1/2048
+    PREGAP 00:02:00
+    INDEX 01 00:00:00
+";
+    let cue_path = dir.path().join("d.cue");
+    std::fs::write(&cue_path, cue).unwrap();
+    let chd_path = dir.path().join("d.chd");
+    cd::create_from_cue(
+        &cue_path,
+        &chd_path,
+        CdCreateOptions::default(),
+        &mut |_| {},
+        &|| false,
+    )
+    .unwrap();
+
+    // Sanity: the track really carries a pregap (the bug trigger).
+    let chd = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+    let tracks = cd::list_tracks(&chd).unwrap();
+    assert_eq!(tracks.len(), 1);
+    assert!(
+        tracks[0].pregap > 0,
+        "fixture must carry a pregap: {:?}",
+        tracks[0]
+    );
+    drop(chd);
+
+    let iso_out = dir.path().join("out.iso");
+    let mut last = 0u64;
+    cd::extract_to_iso(&chd_path, &iso_out, &mut |b| last = b)
+        .expect("extract_to_iso must handle a pregap-bearing data track");
+    let extracted = std::fs::read(&iso_out).unwrap();
+    assert_eq!(
+        extracted, source,
+        "extracted ISO must round-trip to source user data"
+    );
+    assert_eq!(last, source.len() as u64);
+}
+
 // ---------- CdCookedReader: multi-track support ----------
+
+#[test]
+fn cd_cooked_reader_reads_data_track_after_pregap_tracks() {
+    // CD-Extra-like layout: audio tracks (one carrying a PREGAP) followed
+    // by a MODE1 data track. Cumulative pregap pushes the data track's
+    // logframeofs above its physframeofs, so open_track (phys=true) must
+    // use the physical start. Before the fix, reading the trailing data
+    // track's filesystem errored / returned shifted data.
+    let dir = tmpdir();
+    let audio = |seed: u32, frames: usize| -> Vec<u8> {
+        let mut x = seed.wrapping_mul(2654435761).wrapping_add(1);
+        let mut v = Vec::with_capacity(frames * 2352);
+        for _ in 0..frames * 2352 {
+            x = x.wrapping_mul(1103515245).wrapping_add(12345);
+            v.push((x >> 16) as u8);
+        }
+        v
+    };
+    std::fs::write(dir.path().join("a1.bin"), audio(1, 20)).unwrap();
+    std::fs::write(dir.path().join("a2.bin"), audio(2, 25)).unwrap();
+
+    let dframes = 40usize;
+    let mut data = Vec::with_capacity(dframes * 2048);
+    for s in 0..dframes {
+        for i in 0..2048usize {
+            data.push(
+                (s.wrapping_mul(17)
+                    .wrapping_add(i.wrapping_mul(3))
+                    .wrapping_add(9)) as u8,
+            );
+        }
+    }
+    std::fs::write(dir.path().join("d.bin"), &data).unwrap();
+
+    let cue = "\
+FILE \"a1.bin\" BINARY
+  TRACK 01 AUDIO
+    INDEX 01 00:00:00
+FILE \"a2.bin\" BINARY
+  TRACK 02 AUDIO
+    PREGAP 00:02:00
+    INDEX 01 00:00:00
+FILE \"d.bin\" BINARY
+  TRACK 03 MODE1/2048
+    INDEX 01 00:00:00
+";
+    let cue_path = dir.path().join("mixed.cue");
+    std::fs::write(&cue_path, cue).unwrap();
+    let chd_path = dir.path().join("mixed.chd");
+    cd::create_from_cue(
+        &cue_path,
+        &chd_path,
+        CdCreateOptions::default(),
+        &mut |_| {},
+        &|| false,
+    )
+    .unwrap();
+
+    let chd = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+    let tracks = cd::list_tracks(&chd).unwrap();
+    assert_eq!(tracks.len(), 3);
+    assert!(tracks[1].pregap > 0, "track 2 must carry a pregap");
+    assert_eq!(tracks[2].track_type, TrackType::Mode1);
+
+    // Read the trailing data track (index 2) as cooked 2048-byte sectors.
+    let mut rdr = CdCookedReader::open_track(chd, 2).unwrap();
+    assert_eq!(rdr.len(), data.len() as u64);
+    let mut got = Vec::new();
+    rdr.read_to_end(&mut got)
+        .expect("cooked read of pregap-shifted data track must not fail");
+    assert_eq!(
+        got, data,
+        "cooked reader must return the data track's user bytes"
+    );
+}
 
 // MODE1/2352 raw sector layout: 12 sync + 4 header + 2048 user + 4 EDC
 // + 8 reserved + 276 ECC. We only care about where the user payload

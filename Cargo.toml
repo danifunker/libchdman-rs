@@ -21,6 +21,7 @@ include = [
     "/src/**/*.rs",
     "/build.rs",
     "/examples/check-prebuilt.rs",
+    "/examples/extract-cd.rs",
     "/Cargo.toml",
     "/Cargo.lock",
     "/README.md",
