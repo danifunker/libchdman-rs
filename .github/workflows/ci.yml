@@ -34,6 +34,90 @@ jobs:
       - name: Test (no features)
         run: cargo test
 
+  # iOS can't be covered by the `test` matrix above: the toolchain has to
+  # cross-compile, and a device binary can't be executed at all. Without
+  # this job an iOS break would first surface when `release-prebuilt.yml`
+  # is dispatched — after a 14-target matrix has already spent ~15 minutes.
+  test-ios:
+    name: iOS (${{ matrix.target }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Device: build-only. An aarch64-apple-ios binary cannot run on a
+          # macOS runner, so this row proves it compiles and links, nothing
+          # more. Execution is covered by the simulator row below.
+          - target: aarch64-apple-ios
+            run_tests: false
+          # Simulator: the real coverage. `simctl spawn` as the cargo runner
+          # executes the suite as iOS binaries — CHD round-trips and all.
+          - target: aarch64-apple-ios-sim
+            run_tests: true
+    env:
+      IPHONEOS_DEPLOYMENT_TARGET: '13.0'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build
+        run: cargo build --all-features --target ${{ matrix.target }}
+      - name: Boot an iOS simulator
+        if: matrix.run_tests
+        run: |
+          set -euo pipefail
+          # Single-line python: a multi-line -c script would have to sit at
+          # column 0 and would terminate this YAML block scalar.
+          udid=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; f=[x for r,ds in d.items() if 'iOS' in r for x in ds if x.get('isAvailable')]; print(f[0]['udid'] if f else '')")
+          if [ -z "$udid" ]; then
+            runtime=$(xcrun simctl list runtimes -j | python3 -c "import json,sys; r=[x for x in json.load(sys.stdin)['runtimes'] if x.get('isAvailable') and 'iOS' in x['name']]; print(r[0]['identifier'] if r else '')")
+            devtype=$(xcrun simctl list devicetypes -j | python3 -c "import json,sys; d=[x for x in json.load(sys.stdin)['devicetypes'] if 'iPhone' in x['name']]; print(d[-1]['identifier'] if d else '')")
+            [ -n "$runtime" ] && [ -n "$devtype" ] || {
+              echo "FAIL: no iOS runtime/device type available on this runner"; exit 1; }
+            udid=$(xcrun simctl create ci-iphone "$devtype" "$runtime")
+          fi
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+          echo "Booted simulator $udid"
+      - name: Test (--all-features) in the simulator
+        if: matrix.run_tests
+        env:
+          CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUNNER: xcrun simctl spawn booted
+        run: |
+          set -euo pipefail
+          cargo test --all-features --target ${{ matrix.target }} 2>&1 | tee suite.log
+      - name: Test (no features) in the simulator
+        if: matrix.run_tests
+        env:
+          CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUNNER: xcrun simctl spawn booted
+        run: cargo test --target ${{ matrix.target }}
+      - name: Guard against a vacuous pass
+        if: matrix.run_tests
+        # A run that executed zero tests exits 0 and looks green — a broken
+        # runner config would read as success. Require a plausible count.
+        # This is a floor, not an exact count: adding tests is fine, and it
+        # only trips if the suite shrinks drastically or silently no-ops.
+        # The suite ran 68 tests when this was written.
+        run: |
+          set -euo pipefail
+          n=$(awk '/^test result: ok\./{n+=$4} END{print n+0}' suite.log)
+          echo "tests executed on the iOS simulator: $n"
+          if [ "$n" -lt 60 ]; then
+            echo "::error::Only $n tests ran on iOS (expected ~68). Either the"
+            echo "::error::suite shrank or the simulator runner silently no-opped."
+            exit 1
+          fi
+      - name: Device build is compile-only
+        if: ${{ !matrix.run_tests }}
+        run: |
+          echo "::notice title=iOS device coverage::aarch64-apple-ios is built and linked here but cannot be executed on a CI runner. The aarch64-apple-ios-sim row runs the full suite from the same sources."
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

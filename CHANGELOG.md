@@ -31,6 +31,12 @@ notes and git history.
   by the simulator archive, built from the same sources with the same
   compiler. See `RELEASING.md`.
 
+- **iOS coverage in `ci.yml`**, so an iOS break surfaces on the PR that
+  causes it rather than when a release is dispatched. The device target is
+  built and linked; the simulator target runs the **entire test suite** as
+  iOS binaries via `xcrun simctl spawn` — CHD create/extract round-trips
+  included, all 68 tests, matching the host count.
+
 ## 0.288.10
 
 ### Fixed
