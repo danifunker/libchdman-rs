@@ -165,6 +165,106 @@ jobs:
           name: macos-${{ matrix.target }}
           path: out/*
 
+  build-ios:
+    needs: preflight
+    name: iOS ${{ matrix.target }}
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Device. Cannot be executed on a CI runner, so it is validated by
+          # build + symbol check only; the simulator row below carries the
+          # execution proof (same sources, same compiler, same code paths).
+          - target: aarch64-apple-ios
+            platform_id: '2'
+            platform_name: IOS
+            smoke: false
+          # Simulator on Apple Silicon — what a developer runs day to day.
+          - target: aarch64-apple-ios-sim
+            platform_id: '7'
+            platform_name: IOSSIMULATOR
+            smoke: true
+    env:
+      IPHONEOS_DEPLOYMENT_TARGET: '13.0'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: cargo build --release --target ${{ matrix.target }}
+      - name: Merge static libs into single archive
+        run: |
+          set -euo pipefail
+          builddir=$(ls -d target/${{ matrix.target }}/release/build/libchdman-rs-*/out | head -1)
+          mkdir -p out
+          name="libchdman_rs-${{ matrix.target }}.a"
+          libtool -static -o "out/$name" "$builddir"/lib*.a
+          (cd out && shasum -a 256 "$name" > "$name.sha256")
+      - name: Validate archive
+        run: scripts/validate-archive.sh "out/libchdman_rs-${{ matrix.target }}.a"
+      - name: Confirm archive really targets iOS
+        # Device, simulator and macOS arm64 archives are all "arm64", so
+        # `lipo -info` cannot tell them apart. A misconfigured SDK would
+        # otherwise ship a macOS archive under an iOS asset name. The
+        # LC_BUILD_VERSION platform byte is the thing that actually differs.
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          cp "out/libchdman_rs-${{ matrix.target }}.a" "$work/lib.a"
+          (cd "$work" && ar x lib.a)
+          obj=$(find "$work" -name '*.o' | head -1)
+          [ -n "$obj" ] || { echo "FAIL: no objects in archive"; exit 1; }
+          plat=$(otool -l "$obj" | awk '/LC_BUILD_VERSION/{f=1} f && /platform/{print $2; exit}')
+          echo "LC_BUILD_VERSION platform: $plat (expected ${{ matrix.platform_id }} / ${{ matrix.platform_name }})"
+          case "$plat" in
+            ${{ matrix.platform_id }}|${{ matrix.platform_name }}) echo "OK: archive targets ${{ matrix.platform_name }}" ;;
+            *) echo "FAIL: archive reports platform '$plat', not ${{ matrix.platform_name }}"; exit 1 ;;
+          esac
+      - name: Boot an iOS simulator
+        if: matrix.smoke
+        run: |
+          set -euo pipefail
+          # Single-line python: a multi-line -c script would have to sit at
+          # column 0 and would terminate this YAML block scalar.
+          udid=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; f=[x for r,ds in d.items() if 'iOS' in r for x in ds if x.get('isAvailable')]; print(f[0]['udid'] if f else '')")
+          if [ -z "$udid" ]; then
+            echo "No preinstalled iOS simulator; creating one."
+            runtime=$(xcrun simctl list runtimes -j | python3 -c "import json,sys; r=[x for x in json.load(sys.stdin)['runtimes'] if x.get('isAvailable') and 'iOS' in x['name']]; print(r[0]['identifier'] if r else '')")
+            devtype=$(xcrun simctl list devicetypes -j | python3 -c "import json,sys; d=[x for x in json.load(sys.stdin)['devicetypes'] if 'iPhone' in x['name']]; print(d[-1]['identifier'] if d else '')")
+            [ -n "$runtime" ] && [ -n "$devtype" ] || {
+              echo "FAIL: no iOS runtime/device type available on this runner"; exit 1; }
+            udid=$(xcrun simctl create ci-iphone "$devtype" "$runtime")
+          fi
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+          echo "Booted simulator $udid"
+      - name: Smoke test — link prebuilt and run in the simulator
+        if: matrix.smoke
+        env:
+          LIBCHDMAN_PREBUILT_LOCAL_ARCHIVE: ${{ github.workspace }}/out/libchdman_rs-${{ matrix.target }}.a
+          CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUNNER: xcrun simctl spawn booted
+        run: |
+          set -euo pipefail
+          rm -rf target/${{ matrix.target }}/release/examples
+          cargo run --release --features prebuilt --target ${{ matrix.target }} \
+            --example check-prebuilt 2>&1 | tee smoke.log
+          # Do not trust the exit code alone: `simctl spawn` sits between the
+          # binary and cargo, so require the example's success sentinel too.
+          # Without this a swallowed exit status would read as a pass.
+          grep -q 'OK: archive is linked' smoke.log || {
+            echo "FAIL: example did not report success (see smoke.log above)"; exit 1; }
+      - name: Device archive is symbol-validated only
+        if: ${{ !matrix.smoke }}
+        run: |
+          echo "::notice title=iOS device archive::aarch64-apple-ios cannot be executed on a CI runner. Validation here is build + required-symbol check + platform check. Execution is covered by the aarch64-apple-ios-sim row, built from the same sources with the same compiler."
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ios-${{ matrix.target }}
+          path: out/*
+
   build-windows:
     needs: preflight
     name: Windows ${{ matrix.target }}
@@ -426,7 +526,7 @@ jobs:
           path: out/*
 
   release:
-    needs: [preflight, build-linux, build-linux-armv7, build-linux-riscv64, build-macos, build-windows]
+    needs: [preflight, build-linux, build-linux-armv7, build-linux-riscv64, build-macos, build-ios, build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

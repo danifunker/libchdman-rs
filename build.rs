@@ -306,7 +306,12 @@ See the README's \"Choosing between crates.io and git\" section.
     if target_os == "linux" {
         build.define("SDLMAME_UNIX", None);
         build.define("SDLMAME_LINUX", None);
-    } else if target_os == "macos" {
+    } else if target_os == "macos" || target_os == "ios" {
+        // iOS is Darwin/UNIX and classifies identically here. None of the
+        // files we compile actually read these (only MAME's SDL OSD and
+        // osdsync.cpp do, neither of which is in our set), so this is about
+        // keeping the platform classification honest rather than fixing a
+        // build break — iOS compiles clean with or without them.
         build.define("SDLMAME_UNIX", None);
         build.define("SDLMAME_MACOSX", None);
         build.define("SDLMAME_DARWIN", None);
@@ -362,7 +367,11 @@ fn try_use_prebuilt() -> Result<(), String> {
 
     let is_windows_msvc = target.contains("pc-windows-msvc");
     let is_linux_gnu = target.contains("unknown-linux-gnu");
-    let is_apple = target.contains("apple-darwin");
+    // Every Apple platform shares the archive layout, the `.a` extension,
+    // and libc++ linkage — only the triple differs (`apple-darwin`,
+    // `apple-ios`, `apple-ios-sim`). `apple-ios` matches the simulator
+    // triple too, since `aarch64-apple-ios-sim` contains it.
+    let is_apple = target.contains("apple-darwin") || target.contains("apple-ios");
 
     // CI / dogfooding hook: when set, skip download/verify and link the
     // archive at this path as if it were the prebuilt asset. The release
@@ -393,7 +402,8 @@ fn try_use_prebuilt() -> Result<(), String> {
     if !(is_windows_msvc || is_linux_gnu || is_apple) {
         return Err(format!(
             "no prebuilt archive published for target `{target}` (supported: \
-             *-unknown-linux-gnu, *-apple-darwin, *-pc-windows-msvc)"
+             *-unknown-linux-gnu, *-apple-darwin, *-apple-ios, \
+             *-apple-ios-sim, *-pc-windows-msvc)"
         ));
     }
 

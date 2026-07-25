@@ -291,9 +291,24 @@ links it statically.
 | `riscv64gc-unknown-linux-gnu`       | Two glibc floors (2.35, 2.39); cross   |
 | `x86_64-apple-darwin`               | `MACOSX_DEPLOYMENT_TARGET=10.13`       |
 | `aarch64-apple-darwin`              | `MACOSX_DEPLOYMENT_TARGET=10.13`       |
+| `aarch64-apple-ios`                 | Device; `IPHONEOS_DEPLOYMENT_TARGET=13.0` |
+| `aarch64-apple-ios-sim`             | Simulator on Apple Silicon             |
 | `x86_64-pc-windows-msvc`            |                                        |
 | `i686-pc-windows-msvc`              |                                        |
 | `aarch64-pc-windows-msvc`           | Native `windows-11-arm` build          |
+
+On iOS the archive links into an app the same way it does anywhere else —
+libc++ is linked automatically. The library itself is filesystem-only (no
+`fork`/`exec`/`dlopen`, nothing an App Store review objects to), and its
+compression worker pool is already capped at 4 threads, which suits iOS's
+tighter memory ceiling. File access is subject to the app sandbox, so hand
+it paths inside your container.
+
+The `aarch64-apple-ios` device archive is validated in CI by build,
+required-symbol check, and a Mach-O platform check — an iOS device binary
+cannot be executed on a CI runner. The `aarch64-apple-ios-sim` archive is
+additionally run in a booted simulator, and both are built from the same
+sources with the same compiler.
 
 Targets not in the list (musl, BSD, anything exotic) fall back to source
 build automatically when `LIBCHDMAN_PREBUILT_FALLBACK=1` is set; otherwise
