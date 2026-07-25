@@ -5,6 +5,32 @@ a patch counter (`0.288.<N>`) — see the Versioning section of `RELEASING.md`.
 Releases before `0.288.10` are documented only in their GitHub Release
 notes and git history.
 
+## 0.288.11
+
+### Added
+
+- **iOS prebuilt targets**: `aarch64-apple-ios` (device) and
+  `aarch64-apple-ios-sim` (simulator on Apple Silicon). The `prebuilt`
+  feature now resolves an archive for both, bringing the release set to 14
+  archives / 28 assets.
+
+  No C++ changes were needed — MAME's CHD core, both shims, and FLAC
+  (including its NEON intrinsics) compile clean for iOS as-is. The library
+  is filesystem-only: no `fork`/`exec`/`dlopen`, and its compression worker
+  pool was already capped at 4 threads, which suits iOS's memory ceiling.
+  File access is subject to the app sandbox.
+
+  Source builds for iOS already worked before this release; what was
+  missing was the published archive and the target detection to find it.
+  `build.rs` previously matched only `apple-darwin` and rejected iOS
+  triples with "no prebuilt archive published for target".
+
+  CI caveat, by nature rather than by choice: an iOS *device* binary cannot
+  be executed on a CI runner, so that archive is validated by build,
+  required-symbol check, and a Mach-O platform check. Execution is proven
+  by the simulator archive, built from the same sources with the same
+  compiler. See `RELEASING.md`.
+
 ## 0.288.10
 
 ### Fixed

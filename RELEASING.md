@@ -55,13 +55,26 @@ archives, and a `cargo publish` to crates.io.
   - `build-linux-armv7`: `armv7-...-gnueabihf` glibc **2.31** (1)
   - `build-linux-riscv64`: `riscv64gc` × glibc **2.35** and **2.39** (2)
   - `build-macos`: `x86_64` and `aarch64` (2)
+  - `build-ios`: `aarch64-apple-ios` (device) and `aarch64-apple-ios-sim` (2)
   - `build-windows`: `x64`, `x86`, `arm64` MSVC (3)
 - **`release` job** downloads all artifacts and creates the GitHub Release,
   **tagging at the dispatched commit** (`target_commitish: github.sha`). You
   do **not** create the tag by hand — this workflow does.
-- Net output: **12 archives + 12 `.sha256` sidecars = 24 assets**. If you
+- Net output: **14 archives + 14 `.sha256` sidecars = 28 assets**. If you
   change the matrix, update the expected count in `publish-crates-io.yml`
   (and the asset-count gate).
+
+**iOS is the one row that can't run its own smoke test.** An
+`aarch64-apple-ios` binary won't execute on a macOS runner, so that row
+stops at build + `validate-archive.sh` + a Mach-O `LC_BUILD_VERSION`
+platform check (device, simulator and macOS archives are all "arm64", so
+`lipo -info` can't distinguish them and a misconfigured SDK would otherwise
+ship a macOS archive under an iOS name). The `aarch64-apple-ios-sim` row
+boots a simulator and runs `check-prebuilt` through
+`xcrun simctl spawn booted`, which is where execution actually gets proven.
+That step also greps for the example's success sentinel rather than
+trusting the exit code alone, since `simctl spawn` sits between the binary
+and cargo.
 
 ### 3. `publish-crates-io.yml` — Publish to crates.io
 
