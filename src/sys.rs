@@ -33,6 +33,13 @@ pub enum ChdError {
     /// Discriminant chosen well above MAME's range to make accidental
     /// collisions impossible.
     Cancelled = 100,
+    /// Rust-only: a `cd::*` operation was handed a CHD that isn't CD or
+    /// GD-ROM media — a hard-disk, DVD, or A/V CHD, whose unit size isn't
+    /// the 2448-byte CD frame MAME's `cdrom_file` requires. Distinct from
+    /// [`ChdError::InvalidData`], which a `cd::*` call reports when the
+    /// geometry *is* CD-shaped but the track metadata is missing or
+    /// unparseable. Never produced by FFI.
+    NotCdMedia = 101,
 }
 
 pub enum ChdFile {}

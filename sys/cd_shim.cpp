@@ -13,6 +13,7 @@
 #include "corefile.h"
 #include "ioprocs.h"
 #include "chd_shim.h"
+#include "shim_guard.h"
 
 #include <cstring>
 #include <memory>
@@ -28,6 +29,11 @@ static chd_error_t to_chd_error(std::error_condition err) {
     if (err.category() == chd_category()) return (chd_error_t)err.value();
     return (chd_error_t)chd_file::error::INVALID_FILE;
 }
+
+// What a chd_error_t entry point returns when an exception escaped its
+// body. Same code to_chd_error uses for errors outside chd_category —
+// there is no MAME error value that means "C++ threw".
+static constexpr chd_error_t SHIM_ERR_EXCEPTION = (chd_error_t)chd_file::error::INVALID_FILE;
 
 // Port of chdman.cpp's `chd_cd_compressor`. See chdman.cpp:419.
 class CdCompressor : public chd_file_compressor {
@@ -138,33 +144,40 @@ struct chd_shim_cdrom_t {
     std::unique_ptr<cdrom_file> cd;
 };
 
+// Every function below routes through chd_shim::guard / guard_void. MAME's
+// cdrom_file throws on bad input and a foreign exception reaching Rust
+// aborts the process — see shim_guard.h.
 extern "C" {
 
 chd_shim_toc_t* chd_shim_toc_alloc() {
-    auto* t = new chd_shim_toc_t();
-    memset(&t->toc, 0, sizeof(t->toc));
-    t->info.reset();
-    return t;
+    return chd_shim::guard([]() -> chd_shim_toc_t* {
+        auto t = std::make_unique<chd_shim_toc_t>();
+        memset(&t->toc, 0, sizeof(t->toc));
+        t->info.reset();
+        return t.release();
+    }, nullptr);
 }
 
 void chd_shim_toc_free(chd_shim_toc_t* toc) {
-    delete toc;
+    chd_shim::guard_void([&] { delete toc; });
 }
 
 chd_error_t chd_shim_toc_parse(chd_shim_toc_t* toc, const char* path) {
-    return to_chd_error(cdrom_file::parse_toc(path, toc->toc, toc->info));
+    return chd_shim::guard([&] {
+        return to_chd_error(cdrom_file::parse_toc(path, toc->toc, toc->info));
+    }, SHIM_ERR_EXCEPTION);
 }
 
 uint32_t chd_shim_toc_num_tracks(const chd_shim_toc_t* toc) {
-    return toc->toc.numtrks;
+    return chd_shim::guard([&] { return toc->toc.numtrks; }, 0);
 }
 
 uint32_t chd_shim_toc_num_sessions(const chd_shim_toc_t* toc) {
-    return toc->toc.numsessions;
+    return chd_shim::guard([&] { return toc->toc.numsessions; }, 0);
 }
 
 uint32_t chd_shim_toc_flags(const chd_shim_toc_t* toc) {
-    return toc->toc.flags;
+    return chd_shim::guard([&] { return toc->toc.flags; }, 0);
 }
 
 static void copy_track(const cdrom_file::track_info& src, chd_shim_track_t* out) {
@@ -185,91 +198,122 @@ static void copy_track(const cdrom_file::track_info& src, chd_shim_track_t* out)
 }
 
 void chd_shim_toc_get_track(const chd_shim_toc_t* toc, uint32_t i, chd_shim_track_t* out) {
-    if (i >= toc->toc.numtrks) {
-        memset(out, 0, sizeof(*out));
-        return;
-    }
-    copy_track(toc->toc.tracks[i], out);
+    chd_shim::guard_void([&] {
+        if (i >= toc->toc.numtrks) {
+            memset(out, 0, sizeof(*out));
+            return;
+        }
+        copy_track(toc->toc.tracks[i], out);
+    });
 }
 
 const char* chd_shim_toc_get_track_fname(const chd_shim_toc_t* toc, uint32_t i) {
-    if (i >= cdrom_file::MAX_TRACKS) return nullptr;
-    return toc->info.track[i].fname.c_str();
+    return chd_shim::guard([&]() -> const char* {
+        if (i >= cdrom_file::MAX_TRACKS) return nullptr;
+        return toc->info.track[i].fname.c_str();
+    }, nullptr);
 }
 
 uint32_t chd_shim_toc_get_track_offset(const chd_shim_toc_t* toc, uint32_t i) {
-    if (i >= cdrom_file::MAX_TRACKS) return 0;
-    return toc->info.track[i].offset;
+    return chd_shim::guard([&]() -> uint32_t {
+        if (i >= cdrom_file::MAX_TRACKS) return 0;
+        return toc->info.track[i].offset;
+    }, 0);
 }
 
 int chd_shim_toc_get_track_swap(const chd_shim_toc_t* toc, uint32_t i) {
-    if (i >= cdrom_file::MAX_TRACKS) return 0;
-    return toc->info.track[i].swap ? 1 : 0;
+    return chd_shim::guard([&] {
+        if (i >= cdrom_file::MAX_TRACKS) return 0;
+        return toc->info.track[i].swap ? 1 : 0;
+    }, 0);
 }
 
 void chd_shim_toc_pad_tracks(chd_shim_toc_t* toc) {
-    // Mirror chdman.cpp:2192 — round each track up to TRACK_PADDING (4) frames.
-    for (uint32_t tracknum = 0; tracknum < toc->toc.numtrks; tracknum++) {
-        cdrom_file::track_info& t = toc->toc.tracks[tracknum];
-        uint32_t padded = (t.frames + cdrom_file::TRACK_PADDING - 1) / cdrom_file::TRACK_PADDING;
-        t.extraframes = padded * cdrom_file::TRACK_PADDING - t.frames;
-    }
+    chd_shim::guard_void([&] {
+        // Mirror chdman.cpp:2192 — round each track up to TRACK_PADDING (4) frames.
+        for (uint32_t tracknum = 0; tracknum < toc->toc.numtrks; tracknum++) {
+            cdrom_file::track_info& t = toc->toc.tracks[tracknum];
+            uint32_t padded = (t.frames + cdrom_file::TRACK_PADDING - 1) / cdrom_file::TRACK_PADDING;
+            t.extraframes = padded * cdrom_file::TRACK_PADDING - t.frames;
+        }
+    });
 }
 
 uint64_t chd_shim_toc_logical_bytes(const chd_shim_toc_t* toc) {
-    uint64_t total = 0;
-    for (uint32_t i = 0; i < toc->toc.numtrks; i++) {
-        const cdrom_file::track_info& t = toc->toc.tracks[i];
-        total += (uint64_t)(t.frames + t.extraframes) * cdrom_file::FRAME_SIZE;
-    }
-    return total;
+    return chd_shim::guard([&]() -> uint64_t {
+        uint64_t total = 0;
+        for (uint32_t i = 0; i < toc->toc.numtrks; i++) {
+            const cdrom_file::track_info& t = toc->toc.tracks[i];
+            total += (uint64_t)(t.frames + t.extraframes) * cdrom_file::FRAME_SIZE;
+        }
+        return total;
+    }, 0);
 }
 
 chd_file_compressor_t* chd_shim_cd_compressor_alloc(chd_shim_toc_t* toc) {
-    return reinterpret_cast<chd_file_compressor_t*>(new CdCompressor(toc->toc, toc->info));
+    return chd_shim::guard([&] {
+        return reinterpret_cast<chd_file_compressor_t*>(new CdCompressor(toc->toc, toc->info));
+    }, nullptr);
 }
 
 chd_error_t chd_shim_cd_write_metadata(chd_file_t* chd, const chd_shim_toc_t* toc) {
-    return to_chd_error(cdrom_file::write_metadata(reinterpret_cast<chd_file*>(chd), toc->toc));
+    return chd_shim::guard([&] {
+        return to_chd_error(cdrom_file::write_metadata(reinterpret_cast<chd_file*>(chd), toc->toc));
+    }, SHIM_ERR_EXCEPTION);
 }
 
+// The reported crash lived here. `cdrom_file`'s chd_file constructor
+// `throw nullptr`s when the CHD isn't CD media — a hard-disk CHD has
+// unit_bytes() == 512 against a required FRAME_SIZE of 2448, so it throws
+// on the first check (cdrom.cpp:255). Returning nullptr instead lets the
+// Rust side turn it into an ordinary Err; the null-return contract was
+// already in place at every call site. `w` is held by unique_ptr so the
+// wrapper isn't leaked when the cdrom_file constructor throws.
 chd_shim_cdrom_t* chd_shim_cdrom_open(chd_file_t* chd) {
-    auto* w = new chd_shim_cdrom_t();
-    w->cd.reset(new cdrom_file(reinterpret_cast<chd_file*>(chd)));
-    return w;
+    return chd_shim::guard([&]() -> chd_shim_cdrom_t* {
+        auto w = std::make_unique<chd_shim_cdrom_t>();
+        w->cd.reset(new cdrom_file(reinterpret_cast<chd_file*>(chd)));
+        return w.release();
+    }, nullptr);
 }
 
 void chd_shim_cdrom_free(chd_shim_cdrom_t* c) {
-    delete c;
+    chd_shim::guard_void([&] { delete c; });
 }
 
 uint32_t chd_shim_cdrom_num_tracks(const chd_shim_cdrom_t* c) {
-    return c->cd->get_last_track();
+    return chd_shim::guard([&] { return (uint32_t)c->cd->get_last_track(); }, 0);
 }
 
 void chd_shim_cdrom_get_track(const chd_shim_cdrom_t* c, uint32_t i, chd_shim_track_t* out) {
-    const cdrom_file::toc& toc = c->cd->get_toc();
-    if (i >= toc.numtrks) {
-        memset(out, 0, sizeof(*out));
-        return;
-    }
-    copy_track(toc.tracks[i], out);
+    chd_shim::guard_void([&] {
+        const cdrom_file::toc& toc = c->cd->get_toc();
+        if (i >= toc.numtrks) {
+            memset(out, 0, sizeof(*out));
+            return;
+        }
+        copy_track(toc.tracks[i], out);
+    });
 }
 
 uint32_t chd_shim_cdrom_get_track_start(const chd_shim_cdrom_t* c, uint32_t track) {
-    return c->cd->get_track_start(track);
+    return chd_shim::guard([&] { return c->cd->get_track_start(track); }, 0);
 }
 
 uint32_t chd_shim_cdrom_get_track_start_phys(const chd_shim_cdrom_t* c, uint32_t track) {
-    return c->cd->get_track_start_phys(track);
+    return chd_shim::guard([&] { return c->cd->get_track_start_phys(track); }, 0);
 }
 
 int chd_shim_cdrom_read_data(chd_shim_cdrom_t* c, uint32_t lba, void* buffer, uint32_t datatype, int phys) {
-    return c->cd->read_data(lba, buffer, datatype, phys != 0) ? 1 : 0;
+    return chd_shim::guard([&] {
+        return c->cd->read_data(lba, buffer, datatype, phys != 0) ? 1 : 0;
+    }, 0);
 }
 
 int chd_shim_cdrom_read_subcode(chd_shim_cdrom_t* c, uint32_t lba, void* buffer, int phys) {
-    return c->cd->read_subcode(lba, buffer, phys != 0) ? 1 : 0;
+    return chd_shim::guard([&] {
+        return c->cd->read_subcode(lba, buffer, phys != 0) ? 1 : 0;
+    }, 0);
 }
 
 }

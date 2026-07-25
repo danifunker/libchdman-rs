@@ -162,6 +162,55 @@ impl Drop for Toc {
     }
 }
 
+/// RAII handle around MAME's `cdrom_file`, opened over an existing CHD.
+///
+/// Every `cd::*` read path goes through [`Cdrom::open`], which screens out
+/// non-CD CHDs before handing the `chd_file` to MAME. That screen is what
+/// separates [`ChdError::NotCdMedia`] from [`ChdError::InvalidData`]:
+/// `cdrom_file`'s constructor signals both with a bare `throw nullptr`
+/// (cdrom.cpp:253-260), which the shim catches and reports as a null
+/// return with no way to say which check failed. The unit-size check is
+/// the one we can make ourselves.
+struct Cdrom {
+    inner: *mut sys::ChdShimCdrom,
+}
+
+impl Cdrom {
+    fn open(chd: *mut sys::ChdFile) -> Result<Self> {
+        // `cdrom_file` requires unit_bytes() == FRAME_SIZE. A hard-disk
+        // CHD has 512, a DVD 2048 — both throw on cdrom.cpp:255.
+        if unsafe { sys::chd_shim_unit_bytes(chd) } != CD_FRAME_SIZE {
+            return Err(ChdError::NotCdMedia);
+        }
+        let inner = unsafe { sys::chd_shim_cdrom_open(chd) };
+        if inner.is_null() {
+            // CD-shaped geometry, but the CHT2/CHTR/CHGD track metadata is
+            // absent or unparseable (or the hunk size isn't a whole number
+            // of frames).
+            return Err(ChdError::InvalidData);
+        }
+        Ok(Self { inner })
+    }
+
+    fn as_ptr(&self) -> *mut sys::ChdShimCdrom {
+        self.inner
+    }
+
+    /// Give up ownership of the handle. The caller becomes responsible for
+    /// `chd_shim_cdrom_free`.
+    fn into_raw(self) -> *mut sys::ChdShimCdrom {
+        let p = self.inner;
+        std::mem::forget(self);
+        p
+    }
+}
+
+impl Drop for Cdrom {
+    fn drop(&mut self) {
+        unsafe { sys::chd_shim_cdrom_free(self.inner) };
+    }
+}
+
 /// Parse a CUE/TOC and create a CD CHD at `out_path`.
 ///
 /// The CUE parser is MAME's (`cdrom_file::parse_toc`), which dispatches
@@ -277,6 +326,9 @@ fn msf_string(frames: u32) -> String {
 ///
 /// Tracks with stored subcode are silently dropped from the output
 /// (chdman warns; we just omit) — bin/cue cannot represent subcode.
+///
+/// Errors with [`ChdError::NotCdMedia`] if `chd_path` isn't a CD/GD-ROM
+/// CHD (e.g. a hard-disk or DVD image).
 pub fn extract_to_cue(
     chd_path: &Path,
     cue_path: &Path,
@@ -286,18 +338,8 @@ pub fn extract_to_cue(
     let chd = Chd::open(chd_path.to_str().ok_or(ChdError::InvalidFile)?, false, None)?;
     let raw_chd = chd.raw_ptr();
 
-    let cdrom = unsafe { sys::chd_shim_cdrom_open(raw_chd) };
-    if cdrom.is_null() {
-        return Err(ChdError::InvalidData);
-    }
-    // RAII guard so we always free on error.
-    struct CdromGuard(*mut sys::ChdShimCdrom);
-    impl Drop for CdromGuard {
-        fn drop(&mut self) {
-            unsafe { sys::chd_shim_cdrom_free(self.0) };
-        }
-    }
-    let _guard = CdromGuard(cdrom);
+    let guard = Cdrom::open(raw_chd)?;
+    let cdrom = guard.as_ptr();
 
     let n_tracks = unsafe { sys::chd_shim_cdrom_num_tracks(cdrom) };
     if n_tracks == 0 {
@@ -441,7 +483,8 @@ pub fn extract_to_cue(
 ///
 /// Returns an error if the CHD has more than one track, or if the
 /// single track is not MODE1 / MODE1_RAW. For multi-track or
-/// audio-bearing CHDs use [`extract_to_cue`].
+/// audio-bearing CHDs use [`extract_to_cue`]. Errors with
+/// [`ChdError::NotCdMedia`] if `chd_path` isn't a CD/GD-ROM CHD at all.
 pub fn extract_to_iso(
     chd_path: &Path,
     iso_path: &Path,
@@ -459,17 +502,8 @@ pub fn extract_to_iso(
     }
 
     let raw_chd = chd.raw_ptr();
-    let cdrom = unsafe { sys::chd_shim_cdrom_open(raw_chd) };
-    if cdrom.is_null() {
-        return Err(ChdError::InvalidData);
-    }
-    struct CdromGuard(*mut sys::ChdShimCdrom);
-    impl Drop for CdromGuard {
-        fn drop(&mut self) {
-            unsafe { sys::chd_shim_cdrom_free(self.0) };
-        }
-    }
-    let _guard = CdromGuard(cdrom);
+    let guard = Cdrom::open(raw_chd)?;
+    let cdrom = guard.as_ptr();
 
     // Physical start: reads go through the physical CHD frame (phys=true),
     // so the loop must start at `physframeofs`, not the logical start.
@@ -527,6 +561,9 @@ pub fn extract_to_iso(
 /// previous track (`splitframes`) are pulled across the boundary, the
 /// reverse of how the GD-ROM CHD was built. Subcode is dropped — GDI
 /// cannot represent it.
+///
+/// Errors with [`ChdError::NotCdMedia`] if `chd_path` isn't a CD/GD-ROM
+/// CHD (e.g. a hard-disk or DVD image).
 pub fn extract_to_gdi(
     chd_path: &Path,
     gdi_path: &Path,
@@ -536,17 +573,8 @@ pub fn extract_to_gdi(
     let raw_chd = chd.raw_ptr();
     let version = unsafe { sys::chd_shim_version(raw_chd) };
 
-    let cdrom = unsafe { sys::chd_shim_cdrom_open(raw_chd) };
-    if cdrom.is_null() {
-        return Err(ChdError::InvalidData);
-    }
-    struct CdromGuard(*mut sys::ChdShimCdrom);
-    impl Drop for CdromGuard {
-        fn drop(&mut self) {
-            unsafe { sys::chd_shim_cdrom_free(self.0) };
-        }
-    }
-    let _guard = CdromGuard(cdrom);
+    let guard = Cdrom::open(raw_chd)?;
+    let cdrom = guard.as_ptr();
 
     let n_tracks = unsafe { sys::chd_shim_cdrom_num_tracks(cdrom) };
     if n_tracks == 0 {
@@ -670,12 +698,14 @@ pub fn extract_to_gdi(
 /// Walks the CHD's metadata via MAME's `cdrom_file` reader so we get
 /// the parsed `track_info` directly, regardless of whether records were
 /// stored as CHT2 (modern) or CHTR (legacy).
+///
+/// Errors with [`ChdError::NotCdMedia`] when `chd` isn't CD/GD-ROM media
+/// — a hard-disk or DVD CHD is an ordinary `Err`, not a panic or an
+/// abort, so callers can just call this and match rather than
+/// pre-screening with [`Chd::info`].
 pub fn list_tracks(chd: &Chd) -> Result<Vec<TrackInfo>> {
-    let raw_chd = chd.raw_ptr();
-    let cdrom = unsafe { sys::chd_shim_cdrom_open(raw_chd) };
-    if cdrom.is_null() {
-        return Err(ChdError::InvalidData);
-    }
+    let guard = Cdrom::open(chd.raw_ptr())?;
+    let cdrom = guard.as_ptr();
     let n = unsafe { sys::chd_shim_cdrom_num_tracks(cdrom) };
     let mut out = Vec::with_capacity(n as usize);
     for i in 0..n {
@@ -683,7 +713,6 @@ pub fn list_tracks(chd: &Chd) -> Result<Vec<TrackInfo>> {
         unsafe { sys::chd_shim_cdrom_get_track(cdrom, i, &mut t) };
         out.push(TrackInfo::from_raw(i + 1, t));
     }
-    unsafe { sys::chd_shim_cdrom_free(cdrom) };
     Ok(out)
 }
 
@@ -781,6 +810,7 @@ impl CdCookedReader {
     /// - [`TrackType::Mode2FormMix`] (CD-XA mixed-form: strips subheader only)
     ///
     /// Errors:
+    /// - [`ChdError::NotCdMedia`] if `chd` isn't a CD/GD-ROM CHD.
     /// - [`ChdError::InvalidData`] if `track_index` is out of range.
     /// - [`ChdError::UnsupportedFormat`] if the selected track is
     ///   [`TrackType::Audio`] (no 2048-byte cooked representation of a
@@ -804,10 +834,9 @@ impl CdCookedReader {
                 return Err(ChdError::UnsupportedFormat);
             }
         }
-        let cdrom = unsafe { sys::chd_shim_cdrom_open(chd.raw_ptr()) };
-        if cdrom.is_null() {
-            return Err(ChdError::InvalidData);
-        }
+        // Ownership moves into the struct, which frees it in Drop /
+        // into_inner.
+        let cdrom = Cdrom::open(chd.raw_ptr())?.into_raw();
         let track_start = unsafe { sys::chd_shim_cdrom_get_track_start_phys(cdrom, track_index) };
         Ok(Self {
             chd,
