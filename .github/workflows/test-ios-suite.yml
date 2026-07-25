@@ -1,0 +1,79 @@
+# THROWAWAY — experiment only, delete before merging.
+#
+# Question this answers: can the full test suite, compiled for
+# aarch64-apple-ios-sim, actually RUN inside a booted simulator via
+# `xcrun simctl spawn`? The tests create temp files and extract a fixtures
+# zip, and simulator processes share the host filesystem, so it ought to
+# work — but "ought to" is not evidence. If this is green, the jobs go into
+# ci.yml; if it isn't, ci.yml gets the build-only check instead.
+name: test-ios-suite
+
+on:
+  push:
+    branches: [feat/ios-prebuilt-target]
+
+env:
+  # Same as ci.yml: exercise the source path. The prebuilt asset for the
+  # in-development version doesn't exist until the release workflow runs.
+  LIBCHDMAN_FORCE_SOURCE: '1'
+  IPHONEOS_DEPLOYMENT_TARGET: '13.0'
+
+jobs:
+  ios-sim-suite:
+    name: iOS simulator — full test suite (experiment)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim
+      - name: Boot an iOS simulator
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; f=[x for r,ds in d.items() if 'iOS' in r for x in ds if x.get('isAvailable')]; print(f[0]['udid'] if f else '')")
+          if [ -z "$udid" ]; then
+            runtime=$(xcrun simctl list runtimes -j | python3 -c "import json,sys; r=[x for x in json.load(sys.stdin)['runtimes'] if x.get('isAvailable') and 'iOS' in x['name']]; print(r[0]['identifier'] if r else '')")
+            devtype=$(xcrun simctl list devicetypes -j | python3 -c "import json,sys; d=[x for x in json.load(sys.stdin)['devicetypes'] if 'iPhone' in x['name']]; print(d[-1]['identifier'] if d else '')")
+            [ -n "$runtime" ] && [ -n "$devtype" ] || { echo "FAIL: no iOS runtime/device type"; exit 1; }
+            udid=$(xcrun simctl create ci-iphone "$devtype" "$runtime")
+          fi
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+          echo "Booted $udid"
+      - name: Build for the simulator
+        run: cargo build --all-features --target aarch64-apple-ios-sim
+      - name: Test (--all-features) in the simulator
+        env:
+          CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUNNER: xcrun simctl spawn booted
+        run: |
+          set -euo pipefail
+          cargo test --all-features --target aarch64-apple-ios-sim 2>&1 | tee suite-all.log
+      - name: Test (no features) in the simulator
+        env:
+          CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUNNER: xcrun simctl spawn booted
+        run: |
+          set -euo pipefail
+          cargo test --target aarch64-apple-ios-sim 2>&1 | tee suite-min.log
+      - name: Summary — how many tests actually ran
+        if: always()
+        run: |
+          echo "### --all-features"
+          grep -E '^(running [0-9]+ tests|test result)' suite-all.log || echo "(no test-result lines — suite did not run)"
+          echo "### no features"
+          grep -E '^(running [0-9]+ tests|test result)' suite-min.log || echo "(no test-result lines — suite did not run)"
+          echo "### total assertions executed on iOS:"
+          awk '/^test result: ok\./{n+=$4} END{print n+0" tests passed"}' suite-all.log
+      - name: Guard against a vacuous pass
+        # A suite that runs zero tests would exit 0 and look green. Require a
+        # test count in the same ballpark as the host suite (63 at time of
+        # writing) so an empty or silently-skipped run fails loudly.
+        run: |
+          set -euo pipefail
+          n=$(awk '/^test result: ok\./{n+=$4} END{print n+0}' suite-all.log)
+          echo "tests passed on iOS simulator: $n"
+          if [ "$n" -lt 50 ]; then
+            echo "FAIL: only $n tests ran (host suite runs 63) — this is not real coverage"
+            exit 1
+          fi
