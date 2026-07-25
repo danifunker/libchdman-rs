@@ -1,0 +1,51 @@
+# Changelog
+
+Notable changes per release. Versions track the embedded MAME release plus
+a patch counter (`0.288.<N>`) — see the Versioning section of `RELEASING.md`.
+Releases before `0.288.10` are documented only in their GitHub Release
+notes and git history.
+
+## 0.288.10
+
+### Fixed
+
+- **A non-CD CHD no longer aborts the process.** Calling any `cd::*`
+  function on a CHD without CD track metadata — an ordinary hard-disk or
+  DVD image — used to kill the host process outright:
+
+  ```
+  libc++abi: terminating due to uncaught exception of type std::nullptr_t
+  fatal runtime error: Rust cannot catch foreign exceptions, aborting
+  ```
+
+  MAME's `cdrom_file` constructor reports bad input by throwing a bare
+  `nullptr` (`cdrom.cpp:253-260`); a hard-disk CHD has `unit_bytes() == 512`
+  against the required 2448 and trips the first check. Rust frames cannot
+  unwind a foreign exception, so the abort happened before any caller got a
+  chance to handle it. These calls now return an ordinary `Err`.
+
+  **Behavioural change worth pinning to**: consumers that pre-screened with
+  `Chd::info().is_cd` purely to avoid the abort can now just call and match.
+
+- Every `extern "C"` entry point in `sys/chd_shim.cpp` and `sys/cd_shim.cpp`
+  is now exception-safe, not just the one that was reported. Bodies route
+  through `chd_shim::guard` / `guard_void` (`sys/shim_guard.h`), which
+  catches and returns a documented fallback (`nullptr`, `0`, or MAME's
+  `INVALID_FILE`). See `docs/ffi.md`.
+
+- `build.rs` now emits `rerun-if-changed` for `sys/cd_shim.cpp` and
+  `sys/shim_guard.h`. Editing `cd_shim.cpp` previously did not trigger a
+  rebuild, so shim changes could silently not apply.
+
+### Added
+
+- `ChdError::NotCdMedia` — returned by `cd::list_tracks`,
+  `cd::extract_to_cue`, `cd::extract_to_iso`, `cd::extract_to_gdi`, and
+  `CdCookedReader::open`/`open_track` when the CHD isn't CD/GD-ROM media.
+  Distinct from `ChdError::InvalidData`, which those calls still return when
+  the geometry *is* CD-shaped but the track metadata is missing or
+  unparseable. Like `ChdError::Cancelled` it is Rust-only and never produced
+  over FFI.
+
+  This is an added enum variant: exhaustive `match` over `ChdError` needs a
+  new arm. No function signatures changed.

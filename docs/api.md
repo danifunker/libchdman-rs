@@ -10,6 +10,11 @@ The `Chd` struct implements `Drop`. When a `Chd` goes out of scope, it automatic
 
 MAME's `chd_error` enum is mirrored in `src/sys.rs` and re-exported. All fallible operations return a `libchdman_rs::Result<T>`.
 
+Two variants are Rust-only and never come back over FFI; their discriminants sit well above MAME's range (which stops at 24) so they can't collide:
+
+- `ChdError::Cancelled` (100) — a long-running operation was stopped via its `cancel` callback.
+- `ChdError::NotCdMedia` (101) — a `cd::*` call was handed a CHD that isn't CD/GD-ROM media (hard-disk, DVD, A/V). `cd::*` calls still report `InvalidData` when the geometry *is* CD-shaped but the track metadata is missing or unparseable.
+
 ## I/O Traits
 
 Instead of forcing users to use `std::fs::File`, the crate defines a `ChdIo` trait:

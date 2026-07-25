@@ -95,7 +95,9 @@ before dispatching `release-prebuilt.yml` and again before
    # edit Cargo.toml: version = "0.288.9"
    cargo update -p libchdman-rs --precise 0.288.9   # syncs Cargo.lock
    ```
-   Commit it (`chore: bump to 0.288.9`). Re-confirm CI is green.
+   Add a `CHANGELOG.md` section for the version — anything behavioural that
+   a consumer would want to pin to belongs there. Commit it
+   (`chore: bump to 0.288.9`). Re-confirm CI is green.
 
 3. **Merge to `main`** (fast-forward preferred so `main` is exactly the
    commit you intend to release and tag).

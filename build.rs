@@ -333,8 +333,13 @@ See the README's \"Choosing between crates.io and git\" section.
     quiet(&mut build);
     build.compile("chd_shim");
 
+    // Every shim source, or edits to the omitted ones don't rebuild:
+    // emitting any rerun-if-changed opts out of cargo's "rerun when
+    // anything in the package changed" default.
     println!("cargo:rerun-if-changed=sys/chd_shim.h");
     println!("cargo:rerun-if-changed=sys/chd_shim.cpp");
+    println!("cargo:rerun-if-changed=sys/cd_shim.cpp");
+    println!("cargo:rerun-if-changed=sys/shim_guard.h");
     println!("cargo:rerun-if-changed=sys/minimal_osd.cpp");
     println!("cargo:rerun-if-changed=build.rs");
 }

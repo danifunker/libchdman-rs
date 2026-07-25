@@ -341,6 +341,8 @@ The crate version matches the MAME release it embeds — for example,
 same MAME version, the patch component is bumped (`0.288.1`, `0.288.2`,
 ...).
 
+Notable changes per release are in [CHANGELOG.md](CHANGELOG.md).
+
 ## Testing
 
 `cargo test` runs the lib-only suite (round-trip parity, metadata,
