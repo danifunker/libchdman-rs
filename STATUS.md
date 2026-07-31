@@ -1,10 +1,10 @@
 # Current Implementation Status
 
-Date: 2026-05-28
-Version: 0.288.0
+Date: 2026-07-31
+Version: 0.289.0
 
 ## Completed
-- [x] Full integration of MAME 0.288.0 CHD core.
+- [x] Full integration of MAME 0.289 CHD core.
 - [x] Pure library build (Minimal OSD, no SDL/UI dependencies).
 - [x] Support for all major codecs (zlib, lzma, zstd, flac).
 - [x] Idiomatic Rust wrapper `Chd` with `Drop` support.

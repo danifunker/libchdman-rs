@@ -1,9 +1,39 @@
 # Changelog
 
 Notable changes per release. Versions track the embedded MAME release plus
-a patch counter (`0.288.<N>`) — see the Versioning section of `RELEASING.md`.
+a patch counter (`0.<mame>.<N>`) — see the Versioning section of `RELEASING.md`.
 Releases before `0.288.10` are documented only in their GitHub Release
 notes and git history.
+
+## 0.289.0
+
+### Changed
+
+- **MAME bumped to 0.289** (`deps/mame` → tag `mame0289`). No wrapper
+  changes were required.
+
+  The CHD core is functionally unchanged in this release. `chd.cpp`,
+  `chdcodec.cpp`, `cdrom.cpp`, `avhuff.cpp`, and `huffman.cpp` differ
+  from 0.288 only in their `#include` blocks — adding `<cstring>` and
+  dropping `coretmpl.h`. Every CHD header we compile against
+  (`chd.h`, `chdcodec.h`, `cdrom.h`, `hashing.h`, `avhuff.h`,
+  `flac.h`, `huffman.h`) is byte-identical to 0.288, the on-disk
+  format is still `HEADER_VERSION = 5`, and no codec was added or
+  removed. Both shims build unmodified and all 68 tests pass.
+
+- **Vendored zlib 1.3.1 → 1.3.2**, pulled in by the MAME bump. A patch
+  release: no source files were added to or removed from the set
+  `build.rs` compiles, and there is no API change.
+
+### Notes
+
+- MAME 0.289 adds four Quantum Fireball hard-disk templates to the
+  `chdman` CLI's `listtemplates` table, and widens that command's size
+  calculation to 64-bit so the new >4 GB entries print correctly. This
+  crate does not build `src/tools/chdman.cpp` and does not mirror the
+  template table — `hd::create_from_path` / `hd::create_from_reader`
+  take geometry directly — so there is nothing to sync. Exposing named
+  templates remains a possible future addition, not a compatibility gap.
 
 ## 0.288.11
 

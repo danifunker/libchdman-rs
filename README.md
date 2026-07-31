@@ -31,7 +31,7 @@ If you don't need to compile MAME from source — and you almost never do
 
 ```toml
 [dependencies]
-libchdman-rs = { version = "0.288", features = ["prebuilt"] }
+libchdman-rs = { version = "0.289", features = ["prebuilt"] }
 ```
 
 The `prebuilt` feature downloads a pre-built static archive matching
@@ -51,7 +51,7 @@ prebuilt matrix — depend on the git repo:
 
 ```toml
 [dependencies]
-libchdman-rs = { git = "https://github.com/danifunker/libchdman-rs", tag = "v0.288.0" }
+libchdman-rs = { git = "https://github.com/danifunker/libchdman-rs", tag = "v0.289.0" }
 ```
 
 The git dependency includes the full vendored MAME source tree
@@ -275,7 +275,7 @@ skip the C++ compile entirely.
 Enable the `prebuilt` feature in your `Cargo.toml`:
 
 ```toml
-libchdman-rs = { version = "0.288", features = ["prebuilt"] }
+libchdman-rs = { version = "0.289", features = ["prebuilt"] }
 ```
 
 On `cargo build`, the build script downloads the archive matching your
@@ -352,8 +352,8 @@ The downloaded archive is cached under:
 ## Versioning
 
 The crate version matches the MAME release it embeds — for example,
-`0.288.0` embeds MAME 0.288. If a wrapper-only fix is needed against the
-same MAME version, the patch component is bumped (`0.288.1`, `0.288.2`,
+`0.289.0` embeds MAME 0.289. If a wrapper-only fix is needed against the
+same MAME version, the patch component is bumped (`0.289.1`, `0.289.2`,
 ...).
 
 Notable changes per release are in [CHANGELOG.md](CHANGELOG.md).
