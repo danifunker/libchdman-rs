@@ -585,6 +585,14 @@ pub trait ChdDataHandler {
     fn read_data(&mut self, dest: &mut [u8], offset: u64) -> u32;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetadataRecord {
+    pub tag: u32,
+    pub index: u32,
+    pub data: Vec<u8>,
+    pub flags: u8,
+}
+
 pub struct ChdCompressor {
     pub(crate) inner: *mut sys::ChdFileCompressor,
     pub(crate) logical_bytes: u64,
@@ -640,6 +648,24 @@ impl ChdCompressor {
     #[doc(hidden)]
     pub fn as_chd_file_ptr(&mut self) -> *mut sys::ChdFile {
         self.inner as *mut sys::ChdFile
+    }
+
+    pub fn write_metadata(&mut self, record: &MetadataRecord) -> Result<()> {
+        let err = unsafe {
+            sys::chd_shim_write_metadata(
+                self.as_chd_file_ptr(),
+                record.tag,
+                record.index,
+                record.data.as_ptr() as *const _,
+                record.data.len() as u32,
+                record.flags,
+            )
+        };
+        if err == ChdError::NoError {
+            Ok(())
+        } else {
+            Err(err)
+        }
     }
 
     pub fn compress_begin(&mut self) {
