@@ -3,6 +3,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=LIBCHDMAN_PREBUILT_FALLBACK");
     println!("cargo:rerun-if-env-changed=LIBCHDMAN_GLIBC");
     println!("cargo:rerun-if-env-changed=LIBCHDMAN_PREBUILT_LOCAL_ARCHIVE");
+    println!("cargo:rerun-if-env-changed=LIBCHDMAN_CPU");
 
     let use_prebuilt =
         cfg!(feature = "prebuilt") && std::env::var("LIBCHDMAN_FORCE_SOURCE").is_err();
@@ -57,6 +58,14 @@ See the README's \"Choosing between crates.io and git\" section.
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    let optimized_cpu = match std::env::var("LIBCHDMAN_CPU").as_deref() {
+        Ok("portable") | Ok("baseline") | Err(_) => false,
+        Ok("x86-64-v3") | Ok("v3") if target_arch == "x86_64" => true,
+        Ok("x86-64-v3") | Ok("v3") => {
+            panic!("LIBCHDMAN_CPU=x86-64-v3 requires an x86_64 target")
+        }
+        Ok(value) => panic!("unsupported LIBCHDMAN_CPU={value:?}; expected portable or x86-64-v3"),
+    };
 
     // Silences MAME / 3rdparty C/C++ diagnostics across GCC/Clang/MSVC.
     // We don't own this code; its warnings are noise we can't act on.
@@ -183,22 +192,27 @@ See the README's \"Choosing between crates.io and git\" section.
 
     let mut flac_build = cc::Build::new();
     if target_arch == "x86_64" || target_arch == "x86" {
+        // SSE2 is part of the x86-64 baseline. Keep the default build safe on
+        // older x86-64 CPUs; newer SIMD implementations are opt-in below.
         flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_sse2.c");
-        flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_ssse3.c");
-        flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_sse42.c");
-        flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_avx2.c");
         flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/lpc_intrin_sse2.c");
-        flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/lpc_intrin_sse41.c");
-        flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/lpc_intrin_avx2.c");
-        flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/lpc_intrin_fma.c");
         flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/stream_encoder_intrin_sse2.c");
-        flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/stream_encoder_intrin_ssse3.c");
-        flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/stream_encoder_intrin_avx2.c");
         flac_build.flag("-msse2");
-        flac_build.flag("-msse4.1");
-        flac_build.flag("-msse4.2");
-        flac_build.flag("-mavx2");
-        flac_build.flag("-mfma");
+
+        if optimized_cpu {
+            flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_ssse3.c");
+            flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_sse42.c");
+            flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_avx2.c");
+            flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/lpc_intrin_sse41.c");
+            flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/lpc_intrin_avx2.c");
+            flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/lpc_intrin_fma.c");
+            flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/stream_encoder_intrin_ssse3.c");
+            flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/stream_encoder_intrin_avx2.c");
+            flac_build.flag("-msse4.1");
+            flac_build.flag("-msse4.2");
+            flac_build.flag("-mavx2");
+            flac_build.flag("-mfma");
+        }
     } else if target_arch == "aarch64" && target_env != "msvc" {
         // FLAC's NEON intrinsics are GCC/Clang-only: lpc_intrin_neon.c pulls
         // in <arm_neon.h> with GCC-style code that MSVC's ARM64 compiler
