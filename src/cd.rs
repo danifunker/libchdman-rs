@@ -225,6 +225,17 @@ pub fn create_from_cue(
     progress: &mut dyn FnMut(CompressionProgress),
     cancel: &dyn Fn() -> bool,
 ) -> Result<()> {
+    create_from_cue_with_metadata(cue_path, out_path, opts, progress, cancel, &[])
+}
+
+pub fn create_from_cue_with_metadata(
+    cue_path: &Path,
+    out_path: &Path,
+    opts: CdCreateOptions,
+    progress: &mut dyn FnMut(CompressionProgress),
+    cancel: &dyn Fn() -> bool,
+    metadata: &[crate::MetadataRecord],
+) -> Result<()> {
     let mut toc = Toc::parse(cue_path)?;
     toc.pad_tracks();
     let logical_bytes = toc.logical_bytes();
@@ -254,6 +265,9 @@ pub fn create_from_cue(
     if err != ChdError::NoError {
         return Err(err);
     }
+    for record in metadata {
+        compressor.write_metadata(record)?;
+    }
 
     // Toc must outlive the compressor — the C++ CdCompressor holds
     // references into it. Move toc into a guard that drops AFTER
@@ -275,6 +289,17 @@ pub fn create_from_iso(
     opts: CdCreateOptions,
     progress: &mut dyn FnMut(CompressionProgress),
     cancel: &dyn Fn() -> bool,
+) -> Result<()> {
+    create_from_iso_with_metadata(iso_path, out_path, opts, progress, cancel, &[])
+}
+
+pub fn create_from_iso_with_metadata(
+    iso_path: &Path,
+    out_path: &Path,
+    opts: CdCreateOptions,
+    progress: &mut dyn FnMut(CompressionProgress),
+    cancel: &dyn Fn() -> bool,
+    metadata: &[crate::MetadataRecord],
 ) -> Result<()> {
     let iso_name = iso_path
         .file_name()
@@ -298,7 +323,7 @@ pub fn create_from_iso(
             .map_err(|_| ChdError::InvalidFile)?;
         f.flush().map_err(|_| ChdError::InvalidFile)?;
     }
-    create_from_cue(temp_cue.path(), out_path, opts, progress, cancel)
+    create_from_cue_with_metadata(temp_cue.path(), out_path, opts, progress, cancel, metadata)
 }
 
 /// Per-frame size MAME emits for raw read_data.
