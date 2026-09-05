@@ -191,15 +191,17 @@ See the README's \"Choosing between crates.io and git\" section.
     ];
 
     let mut flac_build = cc::Build::new();
+    // FLAC's generated feature macros otherwise declare optional SIMD entry
+    // points merely because the target is x86. The portable profile compiles
+    // only generic C and must suppress those declarations as well.
+    if !optimized_cpu {
+        flac_build.define("FLAC__NO_ASM", None);
+    }
     if target_arch == "x86_64" || target_arch == "x86" {
-        // SSE2 is part of the x86-64 baseline. Keep the default build safe on
-        // older x86-64 CPUs; newer SIMD implementations are opt-in below.
-        flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_sse2.c");
-        flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/lpc_intrin_sse2.c");
-        flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/stream_encoder_intrin_sse2.c");
-        flac_build.flag("-msse2");
-
         if optimized_cpu {
+            flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_sse2.c");
+            flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/lpc_intrin_sse2.c");
+            flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/stream_encoder_intrin_sse2.c");
             flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_ssse3.c");
             flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_sse42.c");
             flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_avx2.c");
