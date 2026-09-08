@@ -228,6 +228,10 @@ pub fn create_from_cue(
     create_from_cue_with_metadata(cue_path, out_path, opts, progress, cancel, &[])
 }
 
+/// [`create_from_cue`], additionally writing `metadata` into the new CHD.
+///
+/// Records are appended after MAME's own CD track metadata, so the TOC is
+/// unaffected and readers that don't know these tags ignore them.
 pub fn create_from_cue_with_metadata(
     cue_path: &Path,
     out_path: &Path,
@@ -293,6 +297,8 @@ pub fn create_from_iso(
     create_from_iso_with_metadata(iso_path, out_path, opts, progress, cancel, &[])
 }
 
+/// [`create_from_iso`], additionally writing `metadata` into the new CHD.
+/// See [`create_from_cue_with_metadata`].
 pub fn create_from_iso_with_metadata(
     iso_path: &Path,
     out_path: &Path,

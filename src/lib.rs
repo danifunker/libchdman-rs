@@ -585,11 +585,22 @@ pub trait ChdDataHandler {
     fn read_data(&mut self, dest: &mut [u8], offset: u64) -> u32;
 }
 
+/// One metadata record to write during CHD creation.
+///
+/// The write-side counterpart to [`MetadataEntry`], which additionally
+/// carries the `index` needed to address a tag that repeats (per-track CD
+/// metadata, for instance).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataRecord {
+    /// Four-character tag (use [`make_tag`] to construct or
+    /// [`metadata::tags`] for the well-known ones).
     pub tag: u32,
+    /// Ordinal among records sharing `tag`. Use `0` for a unique tag.
     pub index: u32,
+    /// Payload, written verbatim.
     pub data: Vec<u8>,
+    /// MAME metadata flags; `1` (`CHD_MDFLAGS_CHECKSUM`) is what chdman
+    /// writes for everything it creates.
     pub flags: u8,
 }
 
@@ -650,6 +661,13 @@ impl ChdCompressor {
         self.inner as *mut sys::ChdFile
     }
 
+    /// Append a metadata record to the CHD being created.
+    ///
+    /// Must be called after `create_file` and before [`compress_begin`], the
+    /// same window chdman writes metadata in — the header area is finalized
+    /// once compression starts.
+    ///
+    /// [`compress_begin`]: ChdCompressor::compress_begin
     pub fn write_metadata(&mut self, record: &MetadataRecord) -> Result<()> {
         let err = unsafe {
             sys::chd_shim_write_metadata(
