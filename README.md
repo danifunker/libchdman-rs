@@ -265,6 +265,12 @@ let io = MyCustomIo::new();
 let chd = Chd::open_custom(io, false, None).expect("Failed to open");
 ```
 
+### Compression threads
+
+Compression uses one worker thread per logical CPU, up to 16 (MAME's
+`WORK_MAX_THREADS`). Set `OSDWORKQUEUEMAXTHREADS` to a positive integer to
+use fewer, as with MAME itself.
+
 ## Pre-built static archives (faster CI builds)
 
 libchdman-rs wraps MAME's C++ core via the `cc` crate, which can take
@@ -299,10 +305,9 @@ links it statically.
 
 On iOS the archive links into an app the same way it does anywhere else —
 libc++ is linked automatically. The library itself is filesystem-only (no
-`fork`/`exec`/`dlopen`, nothing an App Store review objects to), and its
-compression worker pool is already capped at 4 threads, which suits iOS's
-tighter memory ceiling. File access is subject to the app sandbox, so hand
-it paths inside your container.
+`fork`/`exec`/`dlopen`, nothing an App Store review objects to). File
+access is subject to the app sandbox, so hand it paths inside your
+container.
 
 The `aarch64-apple-ios` device archive is validated in CI by build,
 required-symbol check, and a Mach-O platform check — an iOS device binary
@@ -376,6 +381,13 @@ This is **dev-local only**. The feature gates tests that shell out to
 run there. Use them on demand during development cycles when you want
 to confirm that the output of this crate matches what chdman produces
 for the same input.
+
+### Compression worker queue
+
+`scripts/osd-queue-harness.sh check [thread|address]` runs the work queue in
+`sys/minimal_osd.cpp` under ThreadSanitizer or AddressSanitizer (Linux,
+macOS). `scripts/osd-queue-harness.sh bench` reports per-item
+overhead; set `OSD_SRC` to another `minimal_osd.cpp` to compare.
 
 ## Build Requirements
 
