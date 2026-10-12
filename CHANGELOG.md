@@ -5,6 +5,34 @@ a patch counter (`0.<mame>.<N>`) — see the Versioning section of `RELEASING.md
 Releases before `0.288.10` are documented only in their GitHub Release
 notes and git history.
 
+## Unreleased
+
+### Changed
+
+- **Compression uses up to 16 worker threads, not 4.** The array a worker's 
+  `threadid` indexes is `m_codecs[WORK_MAX_THREADS]`, and `osdcore.h` defines
+  `WORK_MAX_THREADS` as 16 (unchanged since at least 0.150). The shim now caps 
+  at that constant, like MAME's own pool. `OSDWORKQUEUEMAXTHREADS` lowers the
+  count, as in MAME.
+
+### Fixed
+
+- **Use-after-free in the work queue.** `chd_file_compressor` releases a
+  work item once the callback marks the hunk complete, which can be before
+  the worker has finished with it. `osd_work_item_release` now waits for
+  the worker, as MAME's does. `completed` is also now atomic.
+- **The thread waiting on compression no longer spins.** The wait functions
+  ignored their timeout and looped on `yield()`; they now block on a
+  condition variable and honour the timeout.
+- Less lock contention: work items are allocated outside the queue mutex,
+  and queuing one item wakes one worker instead of all of them.
+
+### Added
+
+- `scripts/osd-queue-harness.sh`: runs the work queue under
+  ThreadSanitizer or AddressSanitizer (Linux, macOS), plus a
+  `bench` mode.
+
 ## 0.289.0
 
 ### Changed

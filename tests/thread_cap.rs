@@ -1,24 +1,3 @@
-//! Regression guard for the OSD work-queue thread cap.
-//!
-//! Background: MAME's `chd_file_compressor` declares
-//! `codec_class m_codecs[WORK_BUFFER_THREADS]` with `WORK_BUFFER_THREADS = 4`
-//! and asserts `threadid < std::size(m_codecs)` per hunk. Our minimal OSD
-//! shim (`sys/minimal_osd.cpp`) passes each worker's index as `threadid`,
-//! so any host with more than 4 logical CPUs would overflow that array —
-//! historically observed as a STATUS_STACK_BUFFER_OVERRUN abort on a 20-CPU
-//! Windows host. The shim therefore caps `num_threads` at 4.
-//!
-//! CI runners have ≤4 vCPUs, so the existing round-trip tests can't trip
-//! the OOB on their own. This file forces the shim's effective hardware
-//! concurrency to 32 via `LIBCHDMAN_TEST_FORCE_NPROC` and then writes a
-//! compressed CHD with the full 4-codec HD stack — exactly the rusty-backup
-//! scenario. If the cap is ever removed or bumped above `WORK_BUFFER_THREADS`
-//! the C++ assert fires and the test process aborts.
-//!
-//! This test lives in its own integration-test file so cargo runs it in
-//! a dedicated process — setting `LIBCHDMAN_TEST_FORCE_NPROC` here can't
-//! leak into other test binaries.
-
 use std::io::Cursor;
 
 use libchdman_rs::hd::{self, HdCreateOptions};
