@@ -83,7 +83,8 @@ and cargo.
 - **Preflight** checks out the tag and verifies: `Cargo.toml` version
   matches the tag; the GitHub Release exists with **≥ 24 assets** (i.e.
   `release-prebuilt.yml` has already finished for this tag); the packaged
-  tarball is slim (no `*.cpp/*.h` or `deps/`, under 2 MB).
+  tarball is sane: C/C++ only under `mame-chd-src/` and `sys/`, no
+  `deps/`, `mame-chd-src/MAME_VERSION` present, under 4 MB.
 - **Publish** runs `cargo publish --no-verify` (or `--dry-run --no-verify`
   when `dry_run=true`). `--no-verify` avoids the network-dependent prebuilt
   download during verification; the tarball was already validated in

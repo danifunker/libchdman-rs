@@ -4,7 +4,7 @@
 
 ## Dependency Management
 
-To avoid requiring system-level libraries like `libz`, `liblzma`, or `libflac`, the crate compiles MAME's internal copies found in `deps/mame/3rdparty`.
+To avoid requiring system-level libraries like `libz`, `liblzma`, or `libflac`, the crate compiles MAME's internal copies vendored in `mame-chd-src/3rdparty` (generated from the `deps/mame` submodule by `scripts/vendor-mame.sh`).
 
 The following libraries are built:
 - **zlib**: For general compression.

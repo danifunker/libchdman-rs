@@ -64,17 +64,24 @@ jobs:
           cargo package --no-verify --list > /tmp/package-files.txt
           echo "--- Files in tarball ---"
           cat /tmp/package-files.txt
-          # Fail if any C++/large vendored files snuck in.
-          if grep -E '\.(cpp|cc|cxx|hpp|h)$|^deps/' /tmp/package-files.txt; then
+          # C/C++ is only allowed in the vendored MAME subset (mame-chd-src/)
+          # and our shims (sys/). The full MAME checkout (deps/) must never ship.
+          if grep -E '\.(c|cpp|cc|cxx|hpp|h|ipp)$|^deps/' /tmp/package-files.txt \
+              | grep -vE '^(mame-chd-src|sys)/'; then
             echo "::error::Banned files in package — adjust [package.include] in Cargo.toml."
             exit 1
           fi
-          # Size cap: anything over 2 MB suggests something heavy leaked in.
+          if ! grep -qx 'mame-chd-src/MAME_VERSION' /tmp/package-files.txt; then
+            echo "::error::mame-chd-src/ missing from package — run scripts/vendor-mame.sh."
+            exit 1
+          fi
+          # Size cap: the vendored MAME subset is ~1.5 MB compressed;
+          # anything over 4 MB suggests something heavy leaked in.
           cargo package --no-verify
           size=$(stat -c%s target/package/libchdman-rs-*.crate)
           echo "Tarball size: $size bytes"
-          if [ "$size" -gt 2097152 ]; then
-            echo "::error::Tarball exceeds 2 MB cap."
+          if [ "$size" -gt 4194304 ]; then
+            echo "::error::Tarball exceeds 4 MB cap."
             exit 1
           fi
 

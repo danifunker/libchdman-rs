@@ -335,4 +335,4 @@ int osd_getpid() noexcept {
 void osd_break_into_debugger(const char* message) {}
 std::pair<std::error_condition, unsigned> osd_get_cache_line_size() noexcept { return {std::error_condition(), 64}; }
 
-// osd_uchar_from_osdchar is provided by deps/mame/src/osd/strconv.cpp on all platforms.
+// osd_uchar_from_osdchar is provided by mame-chd-src/src/osd/strconv.cpp on all platforms.

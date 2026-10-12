@@ -5,10 +5,42 @@ a patch counter (`0.<mame>.<N>`) — see the Versioning section of `RELEASING.md
 Releases before `0.288.10` are documented only in their GitHub Release
 notes and git history.
 
-## Unreleased
+## 0.289.1
+
+### Added
+
+- **Metadata during CHD creation.** `cd::create_from_cue_with_metadata` /
+  `create_from_iso_with_metadata` write caller-supplied metadata records
+  while the CHD is created; the existing functions keep their signatures
+  and delegate to them. Existing prebuilt archives still link: the shim
+  already exported `chd_shim_write_metadata`.
+- **`LIBCHDMAN_CPU=portable`** (source builds) compiles FLAC as generic C
+  only: no `-m` flags, no intrinsics. Use it for x86_64 CPUs without
+  AVX2: on GCC/Clang the default flags let the compiler auto-vectorize
+  FLAC's unguarded generic code into AVX2. Unset (the default) is
+  unchanged, so release archives are byte-identical.
+- `scripts/osd-queue-harness.sh`: runs the work queue under
+  ThreadSanitizer or AddressSanitizer (Linux, macOS), plus a
+  `bench` mode.
 
 ### Changed
 
+- **Source builds now work from the crates.io package, offline
+  included.** The subset of MAME that `build.rs` compiles (the CHD core
+  from `src/lib/util` plus the bundled zlib, LZMA SDK, zstd, FLAC and
+  utf8proc, ~9 MB, 1.5 MiB compressed) is vendored unmodified in
+  `mame-chd-src/` and shipped in the package, along with the `sys/`
+  shims, which were previously missing too. Before this, a build without
+  the `prebuilt` feature aborted unless you depended on the git repo,
+  and there was no way to build in a network-less sandbox such as distro
+  packaging (techomancer/iris#213). Now `cargo vendor` followed by
+  `LIBCHDMAN_FORCE_SOURCE=1 cargo build --offline` works.
+- `mame-chd-src/MAME_VERSION` records the upstream MAME version, tag
+  and commit. `build.rs` refuses to build if it doesn't match the crate
+  version.
+- New maintainer script `scripts/vendor-mame.sh` regenerates
+  `mame-chd-src/` from a MAME checkout (default: the `deps/mame`
+  submodule). Its file list comes from `build.rs`.
 - **Compression uses up to 16 worker threads, not 4.** The array a worker's 
   `threadid` indexes is `m_codecs[WORK_MAX_THREADS]`, and `osdcore.h` defines
   `WORK_MAX_THREADS` as 16 (unchanged since at least 0.150). The shim now caps 
@@ -26,12 +58,6 @@ notes and git history.
   condition variable and honour the timeout.
 - Less lock contention: work items are allocated outside the queue mutex,
   and queuing one item wakes one worker instead of all of them.
-
-### Added
-
-- `scripts/osd-queue-harness.sh`: runs the work queue under
-  ThreadSanitizer or AddressSanitizer (Linux, macOS), plus a
-  `bench` mode.
 
 ## 0.289.0
 

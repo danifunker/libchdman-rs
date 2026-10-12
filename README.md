@@ -17,54 +17,54 @@ For the full API surface and a chdman-flag-by-flag mapping see
 [`docs/format-modules.md`](docs/format-modules.md) and
 [`docs/chdman-mapping.md`](docs/chdman-mapping.md).
 
-## Choosing between crates.io and git
+## Prebuilt archives vs. source builds
 
-libchdman-rs is published to crates.io in a **slim form** that contains
-only the Rust wrapper code. The ~900 MB MAME C++ source is **not**
-shipped in the crates.io tarball — published crates can't be that
-large, and most consumers don't need to compile MAME from source.
+The crates.io package ships the subset of MAME's C++ source that the
+wrapper compiles (`mame-chd-src/`, ~9 MB; see its `MAME_VERSION` for the
+exact upstream tag and commit). Every build has two options:
 
-### Use crates.io (recommended for most consumers)
+### Prebuilt (recommended for most consumers)
 
-If you don't need to compile MAME from source — and you almost never do
-— depend on the crates.io version and enable the `prebuilt` feature:
+Enable the `prebuilt` feature to download a pre-built static archive
+matching your target triple from this crate's GitHub Releases. Nothing
+C++ is compiled:
 
 ```toml
 [dependencies]
 libchdman-rs = { version = "0.289", features = ["prebuilt"] }
 ```
 
-The `prebuilt` feature downloads a pre-built static archive matching
-your target triple from this crate's GitHub Releases. See the
-["Pre-built static archives"](#pre-built-static-archives-faster-ci-builds)
-section below for supported triples, glibc floors, and escape hatches.
+See ["Pre-built static archives"](#pre-built-static-archives-faster-ci-builds)
+below for supported triples, glibc floors, and escape hatches.
 
-Without `features = ["prebuilt"]`, the build script aborts with an
-actionable message — the crates.io tarball has no C++ source for a
-local build to consume.
+### Source build
 
-### Use the git dependency (for source builds)
+Without `prebuilt`, or with `LIBCHDMAN_FORCE_SOURCE=1`, `build.rs`
+compiles the vendored source with your C/C++ toolchain (a C++20
+compiler is required). A cold build takes well under a minute, and it
+needs no network access. That makes it the route for targets outside
+the prebuilt matrix, and for offline or sandboxed builds such as distro
+packaging.
 
-If you need to compile MAME's C++ from source — debugging the wrapped
-C++, custom MAME patches, or a target triple not covered by the
-prebuilt matrix — depend on the git repo:
+### Offline / distro packaging
 
-```toml
-[dependencies]
-libchdman-rs = { git = "https://github.com/danifunker/libchdman-rs", tag = "v0.289.0" }
+`cargo vendor` captures everything needed. Because Cargo features are
+additive, a packager can't switch off a `prebuilt` feature that a
+downstream crate enables, so set the env var instead:
+
+```bash
+cargo vendor
+LIBCHDMAN_FORCE_SOURCE=1 cargo build --release --offline
 ```
-
-The git dependency includes the full vendored MAME source tree
-(~1 GB), so cold builds are slow.
 
 ### Summary
 
-| Need                                  | Use this                          |
-|---------------------------------------|-----------------------------------|
-| Fast CI, prebuilt target              | crates.io + `prebuilt`            |
-| Custom MAME modifications             | git + source build                |
-| Unusual target not in prebuilt matrix | git + source build                |
-| Reproducible historic builds          | git, pinned by tag                |
+| Need                                  | Use this                                   |
+|---------------------------------------|--------------------------------------------|
+| Fast CI, prebuilt target              | `prebuilt` feature                         |
+| Unusual target not in prebuilt matrix | source build                               |
+| Offline / distro packaging            | `LIBCHDMAN_FORCE_SOURCE=1` + `cargo vendor`|
+| Custom MAME modifications             | git checkout, edit `mame-chd-src/`         |
 
 ## Usage
 
@@ -392,7 +392,9 @@ overhead; set `OSD_SRC` to another `minimal_osd.cpp` to compare.
 ## Build Requirements
 
 - Rust 1.75+
-- C++20 compliant compiler (GCC 10+, Clang 10+, MSVC 2019+)
+- For source builds only: a C++20 compiler (GCC 10+, Clang 10+, MSVC
+  2019+). The `prebuilt` feature needs no C++ toolchain. See
+  [Prebuilt archives vs. source builds](#prebuilt-archives-vs-source-builds).
 
 ### CPU baseline (source builds)
 

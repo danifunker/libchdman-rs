@@ -8,7 +8,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 mode="${1:-check}"
 sanitizer="${2:-thread}"
-mame="$root/deps/mame/src"
+mame="$root/mame-chd-src/src"
 
 case "$mode" in
   check) flags=(-O1 -g "-fsanitize=$sanitizer") ;;

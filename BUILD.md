@@ -7,7 +7,10 @@ The release flow is **dispatch-then-tag**: no tag is pushed manually.
 The workflow only creates the tag after every build cell succeeds, so
 a failed build leaves no tag and no release behind.
 
-1. Update the MAME submodule (`deps/mame`) to the new MAME version.
+1. Update the MAME submodule (`deps/mame`) to the new MAME version and
+   bump `version` in `Cargo.toml` (step 2), then regenerate the vendored
+   subset with `scripts/vendor-mame.sh`. `build.rs` refuses to build if
+   `mame-chd-src/MAME_VERSION` doesn't match the crate version.
 2. Bump `version` in `Cargo.toml` to match the MAME version (e.g.
    `0.288.0` embeds MAME 0.288). The version becomes the release tag.
    For a wrapper-only fix against the same MAME version, bump the patch
