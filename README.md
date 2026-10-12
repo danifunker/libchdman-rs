@@ -265,6 +265,12 @@ let io = MyCustomIo::new();
 let chd = Chd::open_custom(io, false, None).expect("Failed to open");
 ```
 
+### Compression threads
+
+Compression uses one worker thread per logical CPU, up to 16 (MAME's
+`WORK_MAX_THREADS`). Set `OSDWORKQUEUEMAXTHREADS` to a positive integer to
+use fewer, as with MAME itself.
+
 ## Pre-built static archives (faster CI builds)
 
 libchdman-rs wraps MAME's C++ core via the `cc` crate, which can take
@@ -299,10 +305,9 @@ links it statically.
 
 On iOS the archive links into an app the same way it does anywhere else —
 libc++ is linked automatically. The library itself is filesystem-only (no
-`fork`/`exec`/`dlopen`, nothing an App Store review objects to), and its
-compression worker pool is already capped at 4 threads, which suits iOS's
-tighter memory ceiling. File access is subject to the app sandbox, so hand
-it paths inside your container.
+`fork`/`exec`/`dlopen`, nothing an App Store review objects to). File
+access is subject to the app sandbox, so hand it paths inside your
+container.
 
 The `aarch64-apple-ios` device archive is validated in CI by build,
 required-symbol check, and a Mach-O platform check — an iOS device binary
@@ -377,12 +382,40 @@ run there. Use them on demand during development cycles when you want
 to confirm that the output of this crate matches what chdman produces
 for the same input.
 
+### Compression worker queue
+
+`scripts/osd-queue-harness.sh check [thread|address]` runs the work queue in
+`sys/minimal_osd.cpp` under ThreadSanitizer or AddressSanitizer (Linux,
+macOS). `scripts/osd-queue-harness.sh bench` reports per-item
+overhead; set `OSD_SRC` to another `minimal_osd.cpp` to compare.
+
 ## Build Requirements
 
 - Rust 1.75+
 - For source builds only: a C++20 compiler (GCC 10+, Clang 10+, MSVC
   2019+). The `prebuilt` feature needs no C++ toolchain. See
   [Prebuilt archives vs. source builds](#prebuilt-archives-vs-source-builds).
+
+### CPU baseline (source builds)
+
+`LIBCHDMAN_CPU` selects the instruction-set baseline for the bundled FLAC
+codec — the only part of the build that takes `-m` flags. Source builds
+only; it has no effect when the `prebuilt` feature supplies the archive.
+
+| Value                       | Effect                                                       |
+|-----------------------------|--------------------------------------------------------------|
+| unset / `native`            | Default. Per-architecture SIMD: SSE2–AVX2 on x86, NEON on ARM64 |
+| `x86-64-v3` / `v3`          | Explicit spelling of the default on x86_64                   |
+| `portable` / `baseline`     | Generic C only — no `-m` flags, no intrinsics                |
+
+The published archives are all built with the default. Use `portable` when
+a **GCC/Clang x86 build must run on pre-Haswell (pre-2013) CPUs**: the
+default's `-mavx2 -mfma` apply to the whole FLAC sub-build, so the compiler
+may auto-vectorize FLAC's generic files — which are not runtime-CPU-guarded
+— into AVX2, and the binary then dies with `Illegal instruction` on older
+hardware. The cost is slower FLAC compression. MSVC ignores `-m` flags
+entirely, and NEON is ABI-baseline on ARM64, so only GCC/Clang x86 targets
+are affected.
 
 ## License
 

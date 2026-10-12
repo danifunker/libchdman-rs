@@ -7,6 +7,22 @@ notes and git history.
 
 ## 0.289.1
 
+### Added
+
+- **Metadata during CHD creation.** `cd::create_from_cue_with_metadata` /
+  `create_from_iso_with_metadata` write caller-supplied metadata records
+  while the CHD is created; the existing functions keep their signatures
+  and delegate to them. Existing prebuilt archives still link: the shim
+  already exported `chd_shim_write_metadata`.
+- **`LIBCHDMAN_CPU=portable`** (source builds) compiles FLAC as generic C
+  only: no `-m` flags, no intrinsics. Use it for x86_64 CPUs without
+  AVX2: on GCC/Clang the default flags let the compiler auto-vectorize
+  FLAC's unguarded generic code into AVX2. Unset (the default) is
+  unchanged, so release archives are byte-identical.
+- `scripts/osd-queue-harness.sh`: runs the work queue under
+  ThreadSanitizer or AddressSanitizer (Linux, macOS), plus a
+  `bench` mode.
+
 ### Changed
 
 - **Source builds now work from the crates.io package, offline
@@ -25,8 +41,23 @@ notes and git history.
 - New maintainer script `scripts/vendor-mame.sh` regenerates
   `mame-chd-src/` from a MAME checkout (default: the `deps/mame`
   submodule). Its file list comes from `build.rs`.
+- **Compression uses up to 16 worker threads, not 4.** The array a worker's 
+  `threadid` indexes is `m_codecs[WORK_MAX_THREADS]`, and `osdcore.h` defines
+  `WORK_MAX_THREADS` as 16 (unchanged since at least 0.150). The shim now caps 
+  at that constant, like MAME's own pool. `OSDWORKQUEUEMAXTHREADS` lowers the
+  count, as in MAME.
 
-The `prebuilt` feature and its archives are unchanged.
+### Fixed
+
+- **Use-after-free in the work queue.** `chd_file_compressor` releases a
+  work item once the callback marks the hunk complete, which can be before
+  the worker has finished with it. `osd_work_item_release` now waits for
+  the worker, as MAME's does. `completed` is also now atomic.
+- **The thread waiting on compression no longer spins.** The wait functions
+  ignored their timeout and looped on `yield()`; they now block on a
+  condition variable and honour the timeout.
+- Less lock contention: work items are allocated outside the queue mutex,
+  and queuing one item wakes one worker instead of all of them.
 
 ## 0.289.0
 

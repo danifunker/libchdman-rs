@@ -41,7 +41,9 @@ struct osd_work_queue {
     std::queue<osd_work_item*> items;
     std::mutex mutex;
     std::condition_variable cv;
+    std::condition_variable done_cv;
     std::atomic<int> pending_items{0};
+    int queue_waiters = 0;
     bool should_exit = false;
 
     osd_work_queue() {}
@@ -51,7 +53,8 @@ struct osd_work_item {
     osd_work_callback callback;
     void* param;
     void* result;
-    bool completed = false;
+    std::atomic<bool> completed{false};
+    bool waited_on = false;
     uint32_t flags;
     osd_work_queue* queue;
 
@@ -69,13 +72,36 @@ static void worker_thread(osd_work_queue* queue, int threadid) {
             item = queue->items.front();
             queue->items.pop();
         }
+        const bool auto_release = (item->flags & WORK_ITEM_FLAG_AUTO_RELEASE) != 0;
         item->result = item->callback(item->param, threadid);
-        item->completed = true;
-        queue->pending_items--;
-        if (item->flags & WORK_ITEM_FLAG_AUTO_RELEASE) {
+        if (auto_release) {
             delete item;
+            item = nullptr;
         }
+        bool wake;
+        {
+            std::lock_guard<std::mutex> lock(queue->mutex);
+            queue->pending_items--;
+            wake = (item && item->waited_on) || (queue->queue_waiters > 0 && queue->pending_items == 0);
+            // Must be the last access to the item: osd_work_item_wait's
+            // fast path reads `completed` without the lock, and its caller
+            // may release the item as soon as it sees it.
+            if (item) item->completed = true;
+        }
+        if (wake) queue->done_cv.notify_all();
     }
+}
+
+template <typename Pred>
+static bool wait_for_ticks(osd_work_queue* queue, std::unique_lock<std::mutex>& lock, osd_ticks_t timeout, Pred done) {
+    using clock = std::chrono::high_resolution_clock;
+    constexpr osd_ticks_t max_timeout =
+        std::chrono::duration_cast<clock::duration>(std::chrono::hours(24 * 365)).count();
+    if (timeout > max_timeout) {
+        queue->done_cv.wait(lock, done);
+        return true;
+    }
+    return queue->done_cv.wait_for(lock, clock::duration(timeout), done);
 }
 
 osd_work_queue* osd_work_queue_alloc(int flags) {
@@ -93,15 +119,20 @@ osd_work_queue* osd_work_queue_alloc(int flags) {
         }
         if (num_threads == 0) num_threads = 1;
     }
+    if (const char* max_env = std::getenv("OSDWORKQUEUEMAXTHREADS")) {
+        char* end = nullptr;
+        long max_threads = std::strtol(max_env, &end, 10);
+        if (end != max_env && *end == '\0' && max_threads > 0 && max_threads < num_threads)
+            num_threads = (int)max_threads;
+    }
     // MAME's chd_file_compressor (lib/util/chd.cpp) declares
-    // codec_class m_codecs[WORK_BUFFER_THREADS] with WORK_BUFFER_THREADS=4
-    // and asserts threadid < std::size(m_codecs) in async_compress_hunk.
-    // The threadid we hand to callbacks is the worker thread's index, so
-    // on machines with >4 cores we'd overflow that array — observed as a
-    // hard assert/STATUS_STACK_BUFFER_OVERRUN on a 20-CPU Windows host.
-    // Cap at 4 to keep us within the contract.
-    constexpr int MAX_WORKER_THREADS = 4;
-    if (num_threads > MAX_WORKER_THREADS) num_threads = MAX_WORKER_THREADS;
+    // chd_compressor_group *m_codecs[WORK_MAX_THREADS] (WORK_MAX_THREADS is
+    // 16, from osdcore.h) and indexes it with the callback's threadid in
+    // async_compress_hunk. The threadid we hand to callbacks is the worker
+    // thread's index, so more than WORK_MAX_THREADS workers would run past
+    // the end of that array — observed as a STATUS_STACK_BUFFER_OVERRUN
+    // abort on a 20-CPU Windows host before this cap existed.
+    if (num_threads > WORK_MAX_THREADS) num_threads = WORK_MAX_THREADS;
     for (int i = 0; i < num_threads; i++) {
         q->threads.emplace_back(worker_thread, q, i);
     }
@@ -113,10 +144,11 @@ int osd_work_queue_items(osd_work_queue* queue) {
 }
 
 bool osd_work_queue_wait(osd_work_queue* queue, osd_ticks_t timeout) {
-    while (queue->pending_items > 0) {
-        std::this_thread::yield();
-    }
-    return true;
+    std::unique_lock<std::mutex> lock(queue->mutex);
+    queue->queue_waiters++;
+    bool done = wait_for_ticks(queue, lock, timeout, [queue] { return queue->pending_items == 0; });
+    queue->queue_waiters--;
+    return done;
 }
 
 void osd_work_queue_free(osd_work_queue* queue) {
@@ -130,24 +162,36 @@ void osd_work_queue_free(osd_work_queue* queue) {
 }
 
 osd_work_item* osd_work_item_queue_multiple(osd_work_queue* queue, osd_work_callback callback, int32_t numitems, void* parambase, int32_t paramstep, uint32_t flags) {
-    osd_work_item* last = nullptr;
-    std::lock_guard<std::mutex> lock(queue->mutex);
-    for (int i = 0; i < numitems; i++) {
-        void* param = (uint8_t*)parambase + i * paramstep;
-        auto item = new osd_work_item(queue, callback, param, flags);
-        queue->items.push(item);
-        queue->pending_items++;
-        last = item;
+    if (numitems <= 0) return nullptr;
+    // Allocate before taking the lock, which every worker contends on
+    if (numitems == 1) {
+        auto item = new osd_work_item(queue, callback, parambase, flags);
+        {
+            std::lock_guard<std::mutex> lock(queue->mutex);
+            queue->items.push(item);
+            queue->pending_items++;
+        }
+        queue->cv.notify_one();
+        return item;
+    }
+    std::vector<osd_work_item*> batch;
+    batch.reserve(numitems);
+    for (int i = 0; i < numitems; i++)
+        batch.push_back(new osd_work_item(queue, callback, (uint8_t*)parambase + i * paramstep, flags));
+    {
+        std::lock_guard<std::mutex> lock(queue->mutex);
+        for (osd_work_item* item : batch) queue->items.push(item);
+        queue->pending_items += numitems;
     }
     queue->cv.notify_all();
-    return last;
+    return batch.back();
 }
 
 bool osd_work_item_wait(osd_work_item* item, osd_ticks_t timeout) {
-    while (!item->completed) {
-        std::this_thread::yield();
-    }
-    return true;
+    if (item->completed) return true;
+    std::unique_lock<std::mutex> lock(item->queue->mutex);
+    item->waited_on = true;
+    return wait_for_ticks(item->queue, lock, timeout, [item] { return item->completed.load(); });
 }
 
 void* osd_work_item_result(osd_work_item* item) {
@@ -155,6 +199,7 @@ void* osd_work_item_result(osd_work_item* item) {
 }
 
 void osd_work_item_release(osd_work_item* item) {
+    if (!item->completed) osd_work_item_wait(item, ~osd_ticks_t(0));
     delete item;
 }
 

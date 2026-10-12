@@ -4,8 +4,8 @@ use std::io::{Read, Seek, SeekFrom, Write};
 
 use libchdman_rs::cd::{self, CdCookedReader, CdCreateOptions, SubcodeType, TrackType};
 use libchdman_rs::{
-    Chd, ChdError, CHD_CODEC_CD_FLAC, CHD_CODEC_CD_LZMA, CHD_CODEC_CD_ZLIB, CHD_CODEC_CD_ZSTD,
-    CHD_CODEC_NONE,
+    Chd, ChdError, MetadataRecord, CHD_CODEC_CD_FLAC, CHD_CODEC_CD_LZMA, CHD_CODEC_CD_ZLIB,
+    CHD_CODEC_CD_ZSTD, CHD_CODEC_NONE,
 };
 
 mod common;
@@ -840,4 +840,74 @@ fn open_track_lba_16_roundtrips_data_track() {
         &got, expected,
         "LBA 16 user data must round-trip via CHD encode + cooked read"
     );
+}
+
+#[test]
+fn create_from_cue_with_metadata_appends_records() {
+    // Custom records are written after MAME's own CD track metadata, so the
+    // TOC still parses and the extra tags read back verbatim.
+    let _ = common::fixtures_dir();
+    let cue = common::fixture_path(common::assets::CD_CUE);
+
+    let dir = tmpdir();
+    let chd_path = dir.path().join("with_meta.chd");
+    let tag = libchdman_rs::make_tag(b'T', b'E', b'S', b'T');
+    let records = [
+        MetadataRecord {
+            tag,
+            index: 0,
+            data: b"first".to_vec(),
+            flags: 1, // CHD_MDFLAGS_CHECKSUM, as in tests/common
+        },
+        MetadataRecord {
+            tag,
+            index: 1,
+            data: b"second".to_vec(),
+            flags: 1, // CHD_MDFLAGS_CHECKSUM, as in tests/common
+        },
+    ];
+
+    cd::create_from_cue_with_metadata(
+        &cue,
+        &chd_path,
+        CdCreateOptions::default(),
+        &mut |_| {},
+        &|| false,
+        &records,
+    )
+    .expect("create_from_cue_with_metadata");
+
+    let chd = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+    assert_eq!(chd.read_metadata(tag, 0).unwrap(), b"first");
+    assert_eq!(chd.read_metadata(tag, 1).unwrap(), b"second");
+
+    // The CD itself is untouched: MAME's parser still sees both tracks.
+    let info = chd.info().unwrap();
+    assert!(info.is_cd);
+    assert_eq!(info.track_count, 2);
+    assert_eq!(cd::list_tracks(&chd).unwrap().len(), 2);
+}
+
+#[test]
+fn create_from_cue_without_metadata_writes_none() {
+    let _ = common::fixtures_dir();
+    let cue = common::fixture_path(common::assets::CD_CUE);
+
+    let dir = tmpdir();
+    let chd_path = dir.path().join("no_meta.chd");
+    cd::create_from_cue(
+        &cue,
+        &chd_path,
+        CdCreateOptions::default(),
+        &mut |_| {},
+        &|| false,
+    )
+    .unwrap();
+
+    let chd = Chd::open(chd_path.to_str().unwrap(), false, None).unwrap();
+    let tag = libchdman_rs::make_tag(b'T', b'E', b'S', b'T');
+    assert!(matches!(
+        chd.read_metadata(tag, 0),
+        Err(ChdError::MetadataNotFound)
+    ));
 }
