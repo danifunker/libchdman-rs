@@ -5,6 +5,29 @@ a patch counter (`0.<mame>.<N>`) — see the Versioning section of `RELEASING.md
 Releases before `0.288.10` are documented only in their GitHub Release
 notes and git history.
 
+## 0.289.1
+
+### Changed
+
+- **Source builds now work from the crates.io package, offline
+  included.** The subset of MAME that `build.rs` compiles (the CHD core
+  from `src/lib/util` plus the bundled zlib, LZMA SDK, zstd, FLAC and
+  utf8proc, ~9 MB, 1.5 MiB compressed) is vendored unmodified in
+  `mame-chd-src/` and shipped in the package, along with the `sys/`
+  shims, which were previously missing too. Before this, a build without
+  the `prebuilt` feature aborted unless you depended on the git repo,
+  and there was no way to build in a network-less sandbox such as distro
+  packaging (techomancer/iris#213). Now `cargo vendor` followed by
+  `LIBCHDMAN_FORCE_SOURCE=1 cargo build --offline` works.
+- `mame-chd-src/MAME_VERSION` records the upstream MAME version, tag
+  and commit. `build.rs` refuses to build if it doesn't match the crate
+  version.
+- New maintainer script `scripts/vendor-mame.sh` regenerates
+  `mame-chd-src/` from a MAME checkout (default: the `deps/mame`
+  submodule). Its file list comes from `build.rs`.
+
+The `prebuilt` feature and its archives are unchanged.
+
 ## 0.289.0
 
 ### Changed
