@@ -382,6 +382,27 @@ for the same input.
 - Rust 1.75+
 - C++20 compliant compiler (GCC 10+, Clang 10+, MSVC 2019+)
 
+### CPU baseline (source builds)
+
+`LIBCHDMAN_CPU` selects the instruction-set baseline for the bundled FLAC
+codec — the only part of the build that takes `-m` flags. Source builds
+only; it has no effect when the `prebuilt` feature supplies the archive.
+
+| Value                       | Effect                                                       |
+|-----------------------------|--------------------------------------------------------------|
+| unset / `native`            | Default. Per-architecture SIMD: SSE2–AVX2 on x86, NEON on ARM64 |
+| `x86-64-v3` / `v3`          | Explicit spelling of the default on x86_64                   |
+| `portable` / `baseline`     | Generic C only — no `-m` flags, no intrinsics                |
+
+The published archives are all built with the default. Use `portable` when
+a **GCC/Clang x86 build must run on pre-Haswell (pre-2013) CPUs**: the
+default's `-mavx2 -mfma` apply to the whole FLAC sub-build, so the compiler
+may auto-vectorize FLAC's generic files — which are not runtime-CPU-guarded
+— into AVX2, and the binary then dies with `Illegal instruction` on older
+hardware. The cost is slower FLAC compression. MSVC ignores `-m` flags
+entirely, and NEON is ABI-baseline on ARM64, so only GCC/Clang x86 targets
+are affected.
+
 ## License
 
 This crate is licensed under the [BSD 3-Clause License](LICENSE).

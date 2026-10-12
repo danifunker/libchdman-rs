@@ -3,6 +3,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=LIBCHDMAN_PREBUILT_FALLBACK");
     println!("cargo:rerun-if-env-changed=LIBCHDMAN_GLIBC");
     println!("cargo:rerun-if-env-changed=LIBCHDMAN_PREBUILT_LOCAL_ARCHIVE");
+    println!("cargo:rerun-if-env-changed=LIBCHDMAN_CPU");
 
     let use_prebuilt =
         cfg!(feature = "prebuilt") && std::env::var("LIBCHDMAN_FORCE_SOURCE").is_err();
@@ -57,6 +58,40 @@ See the README's \"Choosing between crates.io and git\" section.
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+
+    // LIBCHDMAN_CPU picks the ISA baseline for the FLAC sub-build (the only
+    // place we pass -m flags). The default is the per-architecture SIMD build
+    // every release archive has always shipped; `portable` is the opt-out.
+    //
+    //   unset / "native"        SIMD as per target arch (default, unchanged)
+    //   "x86-64-v3" / "v3"      explicit spelling of the default on x86_64
+    //   "portable" / "baseline" generic C only — no -m flags, no intrinsics
+    //
+    // Why an opt-out exists: on GCC/Clang x86 the -mavx2/-mfma below apply to
+    // the whole sub-build, so the compiler may auto-vectorize FLAC's *generic*
+    // files — which are not runtime-CPU-guarded — into AVX2. That binary then
+    // SIGILLs on pre-Haswell CPUs. `portable` trades FLAC throughput for
+    // running anywhere. (MSVC ignores -m flags entirely, so Windows archives
+    // are unaffected either way; on aarch64 NEON is ABI-baseline, so the
+    // default is always safe there.)
+    let optimized_cpu = match std::env::var("LIBCHDMAN_CPU").as_deref() {
+        Err(_) | Ok("") | Ok("native") => true,
+        Ok("portable") | Ok("baseline") => false,
+        Ok("x86-64-v3") | Ok("v3") => {
+            if target_arch != "x86_64" {
+                // Don't panic: a release matrix that sets this once at the
+                // workflow level would otherwise fail every non-x86_64 job.
+                println!(
+                    "cargo:warning=LIBCHDMAN_CPU=x86-64-v3 ignored on {target_arch}; \
+                     using the default SIMD baseline for this architecture."
+                );
+            }
+            true
+        }
+        Ok(value) => {
+            panic!("unsupported LIBCHDMAN_CPU={value:?}; expected native, portable, or x86-64-v3")
+        }
+    };
 
     // Silences MAME / 3rdparty C/C++ diagnostics across GCC/Clang/MSVC.
     // We don't own this code; its warnings are noise we can't act on.
@@ -182,7 +217,14 @@ See the README's \"Choosing between crates.io and git\" section.
     ];
 
     let mut flac_build = cc::Build::new();
-    if target_arch == "x86_64" || target_arch == "x86" {
+    if !optimized_cpu {
+        // FLAC's generated feature macros declare the optional SIMD entry
+        // points merely because the target is x86/ARM64, and stream_encoder.c
+        // dispatches to them. With the intrinsic .c files omitted, those would
+        // be undefined at link time, so the portable profile has to gate the
+        // declarations out as well.
+        flac_build.define("FLAC__NO_ASM", None);
+    } else if target_arch == "x86_64" || target_arch == "x86" {
         flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_sse2.c");
         flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_ssse3.c");
         flac_files.push("deps/mame/3rdparty/flac/src/libFLAC/fixed_intrin_sse42.c");
@@ -225,7 +267,7 @@ See the README's \"Choosing between crates.io and git\" section.
     flac_build.define("HAVE_STDLIB_H", Some("1"));
     flac_build.define("HAVE_STRING_H", Some("1"));
     flac_build.define("SIZE_T_MAX", Some("UINT64_MAX"));
-    if target_arch == "aarch64" && target_env == "msvc" {
+    if optimized_cpu && target_arch == "aarch64" && target_env == "msvc" {
         // MSVC ARM64 (_M_ARM64) makes FLAC's bundled config.h enable the NEON
         // path (FLAC__HAS_NEONINTRIN), but those intrinsics don't compile
         // under cl.exe and we don't ship the .c file (see above). config.h
