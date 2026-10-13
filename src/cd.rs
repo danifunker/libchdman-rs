@@ -754,6 +754,7 @@ impl ChdCompressor {
         Self {
             inner,
             logical_bytes,
+            handler: None,
         }
     }
 }

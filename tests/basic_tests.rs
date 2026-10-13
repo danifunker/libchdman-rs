@@ -65,3 +65,30 @@ fn test_hunk_io() {
         .expect("Failed to read bytes");
     assert_eq!(hunk1_data, read_back_bytes);
 }
+
+#[test]
+fn compressor_drops_its_data_handler() {
+    use libchdman_rs::{ChdCompressor, ChdDataHandler};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    struct Handler(Arc<AtomicBool>);
+    impl ChdDataHandler for Handler {
+        fn read_data(&mut self, dest: &mut [u8], _offset: u64) -> u32 {
+            dest.len() as u32
+        }
+    }
+    impl Drop for Handler {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    let dropped = Arc::new(AtomicBool::new(false));
+    let compressor = ChdCompressor::new(Handler(dropped.clone()));
+    assert!(!dropped.load(Ordering::SeqCst));
+    drop(compressor);
+    // A handler that owns open files must release them with the
+    // compressor, or Windows can't rename/delete those files afterwards.
+    assert!(dropped.load(Ordering::SeqCst));
+}
