@@ -5,7 +5,7 @@ a patch counter (`0.<mame>.<N>`) — see the Versioning section of `RELEASING.md
 Releases before `0.288.10` are documented only in their GitHub Release
 notes and git history.
 
-## Unreleased
+## 0.289.2
 
 ### Fixed
 
