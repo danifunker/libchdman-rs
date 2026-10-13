@@ -607,6 +607,13 @@ pub struct MetadataRecord {
 pub struct ChdCompressor {
     pub(crate) inner: *mut sys::ChdFileCompressor,
     pub(crate) logical_bytes: u64,
+    /// The boxed `ChdDataHandler` handed to C++ in [`ChdCompressor::new`],
+    /// plus its type-erased destructor. The C++ side only borrows it, so
+    /// we free it in `Drop` once the compressor itself is gone.
+    handler: Option<(
+        sys::ChdRustCompressorHandle,
+        unsafe fn(sys::ChdRustCompressorHandle),
+    )>,
 }
 
 impl ChdCompressor {
@@ -620,6 +627,7 @@ impl ChdCompressor {
             Self {
                 inner: sys::chd_shim_compressor_alloc(handle, ops),
                 logical_bytes: 0,
+                handler: Some((handle, drop_compressor_handler::<T>)),
             }
         }
     }
@@ -749,10 +757,19 @@ extern "C" fn chd_compressor_read_data<T: ChdDataHandler>(
     handler.read_data(buf, offset)
 }
 
+unsafe fn drop_compressor_handler<T: ChdDataHandler>(handle: sys::ChdRustCompressorHandle) {
+    drop(Box::from_raw(handle as *mut T));
+}
+
 impl Drop for ChdCompressor {
     fn drop(&mut self) {
         unsafe {
+            // Free the C++ compressor first: its destructor joins the
+            // worker threads, which may still be reading through `handler`.
             sys::chd_shim_compressor_free(self.inner);
+            if let Some((handle, drop_fn)) = self.handler.take() {
+                drop_fn(handle);
+            }
         }
     }
 }

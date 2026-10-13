@@ -5,6 +5,16 @@ a patch counter (`0.<mame>.<N>`) — see the Versioning section of `RELEASING.md
 Releases before `0.288.10` are documented only in their GitHub Release
 notes and git history.
 
+## 0.289.2
+
+### Fixed
+
+- **`ChdCompressor` leaked its data handler.** `ChdCompressor::new` boxed
+  the handler and passed it to C++, and nothing ever freed it. Any files
+  the handler owned stayed open after compression. On Windows that blocked
+  renaming or deleting them later ("Access is denied"). The handler is now
+  dropped with the compressor.
+
 ## 0.289.1
 
 ### Added
