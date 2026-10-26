@@ -5,6 +5,31 @@ a patch counter (`0.<mame>.<N>`) — see the Versioning section of `RELEASING.md
 Releases before `0.288.10` are documented only in their GitHub Release
 notes and git history.
 
+## 0.289.3
+
+### Added
+
+- **`cd::CdAudioReader`: stream raw CD sectors out of a CD CHD, no
+  extraction.** Reads 2352-byte sectors on demand, byte-identical to the
+  `.bin` that `cd::extract_to_cue` writes: audio byte-swapped to
+  little-endian, subcode dropped. Players can start a track and seek
+  without unpacking the disc to a temp BIN first.
+  - `open(chd)`: the whole disc in the BIN's address space (sector `N` is
+    bytes `[N*2352 .. (N+1)*2352)` of the `.bin`).
+  - `open_track(chd, index)`: one track; sector 0 is its first frame.
+  - `sector_count`, `len`, `is_empty`, `read_sectors(start, count, buf)`,
+    `into_inner`, plus `Read + Seek`. `Send`; reads take `&mut self`.
+  - Raw (2352-byte) data tracks are readable too. A cooked track
+    (`MODE1/2048`, ...) returns `UnsupportedFormat`. A non-CD CHD returns
+    `NotCdMedia`. An out-of-range track or sector range returns
+    `InvalidData`.
+
+### Changed
+
+- `extract_to_cue` and `extract_to_gdi` now share one internal frame
+  mapping (physical track start, `padframes` and `splitframes`, audio
+  byte-swap) with `CdAudioReader`. Their output is unchanged.
+
 ## 0.289.2
 
 ### Fixed
