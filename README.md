@@ -157,6 +157,35 @@ for multi-track CHDs as a back-compat guard; pick a track explicitly with
 Use `Chd::info().is_cd` and `cd::list_tracks` to inspect the TOC before opening.
 `into_inner()` recovers the owned `Chd` if you need it back.
 
+### Streaming CD audio straight out of a CHD
+
+`CdAudioReader` reads raw 2352-byte sectors on demand: the exact bytes
+`cd::extract_to_cue` would write to its `.bin` (audio byte-swapped to
+little-endian, subcode dropped), with no temp file and no full-disc
+decompression. Seeking is cheap. Each read goes straight to the sector's
+physical CHD frame.
+
+```rust
+use libchdman_rs::cd::CdAudioReader;
+use libchdman_rs::Chd;
+
+let chd = Chd::open("album.chd", false, None)?;
+// Track 3 (0-based index 2). Sector 0 is the track's first frame.
+let mut track = CdAudioReader::open_track(chd, 2)?;
+
+// One second of 44.1 kHz stereo 16-bit LE PCM = 75 sectors.
+let mut pcm = vec![0u8; 75 * CdAudioReader::SECTOR_SIZE];
+track.read_sectors(0, 75, &mut pcm)?;
+```
+
+`CdAudioReader::open(chd)` gives the whole disc in the `.bin`'s address
+space instead: sector `N` is bytes `[N*2352 .. (N+1)*2352)` of the extracted
+BIN. Raw (2352-byte) data tracks read as their raw sectors; a cooked
+`MODE1/2048`-style track has no 2352-byte form and returns
+`Err(ChdError::UnsupportedFormat)`. The reader is `Send` and also implements
+`Read + Seek`. Reads take `&mut self`, so wrap it in a `Mutex` to share it
+with a playback thread.
+
 ### Runtime hard-disk writes (MAME-style)
 
 `HdImage` is a block-device view over a hard-disk CHD — the same surface

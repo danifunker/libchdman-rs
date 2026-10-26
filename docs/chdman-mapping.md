@@ -17,6 +17,7 @@ flags to the equivalent Rust API. For full detail on each module see
 | `chdman extractdvd`    | [`dvd::extract_to_iso`] / [`dvd::extract_to_writer`] |
 | `chdman createcd`      | [`cd::create_from_cue`] / [`cd::create_from_iso`] |
 | `chdman extractcd`     | [`cd::extract_to_cue`] (multi-track) / [`cd::extract_to_iso`] (MODE1 only) |
+| `chdman extractcd` (streamed, no temp file) | [`cd::CdAudioReader`] (raw 2352-byte sectors == the `.bin`) / [`cd::CdCookedReader`] (cooked 2048-byte data) |
 | `chdman copy`          | [`copy::copy`]                                |
 | `chdman info`          | [`Chd::info`] returns a `ChdInfo` snapshot    |
 | `chdman verify`        | [`Chd::verify`]                               |

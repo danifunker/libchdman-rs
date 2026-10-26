@@ -345,6 +345,111 @@ fn msf_string(frames: u32) -> String {
     format!("{:02}:{:02}:{:02}", m, s, f)
 }
 
+/// Frame mapping shared by the raw extractors and [`CdAudioReader`]: which
+/// physical CHD frame backs the Nth frame each track emits, mirroring
+/// chdman's `do_extract_cd` (chdman.cpp:2968-2987).
+///
+/// A track emits `frames - padframes + splitframes` frames. The first
+/// `splitframes` live at the tail of the previous track (the reverse of
+/// GD-ROM CHD construction); the rest start at the track's *physical*
+/// start. The logical start (`get_track_start`) is inflated by cumulative
+/// pregap, so feeding it to a phys=true read walks past the track's stored
+/// frames on CD-Extra / mixed-mode discs.
+///
+/// `splitframes` isn't stored in CHT2/CHGD metadata, so a CHD read back
+/// through `cdrom_file` always reports 0 and the split branch is dormant.
+/// It is kept to mirror chdman should MAME start persisting it.
+struct DiscLayout {
+    tracks: Vec<sys::ChdShimTrack>,
+    /// `get_track_start_phys` per track.
+    phys: Vec<u32>,
+}
+
+impl DiscLayout {
+    fn read(cdrom: *mut sys::ChdShimCdrom) -> Result<Self> {
+        let n = unsafe { sys::chd_shim_cdrom_num_tracks(cdrom) };
+        if n == 0 {
+            return Err(ChdError::InvalidData);
+        }
+        let mut tracks = Vec::with_capacity(n as usize);
+        let mut phys = Vec::with_capacity(n as usize);
+        for i in 0..n {
+            let mut t = sys::ChdShimTrack::default();
+            unsafe { sys::chd_shim_cdrom_get_track(cdrom, i, &mut t) };
+            tracks.push(t);
+            phys.push(unsafe { sys::chd_shim_cdrom_get_track_start_phys(cdrom, i) });
+        }
+        Ok(Self { tracks, phys })
+    }
+
+    /// Frames track `t` emits on extraction.
+    fn emitted_frames(&self, t: usize) -> u32 {
+        let trk = &self.tracks[t];
+        trk.frames
+            .saturating_sub(trk.padframes)
+            .saturating_add(trk.splitframes)
+    }
+
+    /// Source track index and physical LBA of emitted frame `frame` of
+    /// track `t`.
+    fn locate(&self, t: usize, frame: u32) -> (usize, u32) {
+        let split = self.tracks[t].splitframes;
+        if t > 0 && frame < split {
+            let frameofs = self.tracks[t - 1]
+                .frames
+                .wrapping_sub(split)
+                .wrapping_add(frame);
+            (t - 1, self.phys[t - 1].wrapping_add(frameofs))
+        } else {
+            (t, self.phys[t].wrapping_add(frame.wrapping_sub(split)))
+        }
+    }
+
+    /// Read emitted frame `frame` of track `t` into `buf` (at least
+    /// [`RAW_SECTOR_SIZE`] bytes) and return how many bytes it holds (the
+    /// source track's `datasize`). Audio is byte-swapped from CHD's
+    /// big-endian to little-endian when `swap_audio` is set.
+    fn read_frame(
+        &self,
+        cdrom: *mut sys::ChdShimCdrom,
+        t: usize,
+        frame: u32,
+        buf: &mut [u8],
+        swap_audio: bool,
+    ) -> Result<usize> {
+        debug_assert!(buf.len() >= RAW_SECTOR_SIZE);
+        let (src, lba) = self.locate(t, frame);
+        let src = &self.tracks[src];
+        let ok = unsafe {
+            sys::chd_shim_cdrom_read_data(
+                cdrom,
+                lba,
+                buf.as_mut_ptr() as *mut _,
+                src.trktype,
+                1, // phys=true: read at the physical CHD frame, like chdman
+            )
+        };
+        if ok == 0 {
+            return Err(ChdError::InvalidData);
+        }
+        let bytes = src.datasize as usize;
+        if swap_audio && src.trktype == TrackType::Audio as u32 {
+            for pair in buf[..bytes].as_chunks_mut::<2>().0 {
+                pair.swap(0, 1);
+            }
+        }
+        Ok(bytes)
+    }
+
+    /// Whether every frame track `t` emits is a full raw 2352-byte sector
+    /// (its own frames, plus the previous track's when it borrows
+    /// `splitframes` from it).
+    fn track_is_raw(&self, t: usize) -> bool {
+        let raw = |i: usize| self.tracks[i].datasize as usize == RAW_SECTOR_SIZE;
+        raw(t) && (t == 0 || self.tracks[t].splitframes == 0 || raw(t - 1))
+    }
+}
+
 /// Extract a CD CHD to a CUE/BIN pair. Writes a single combined `.bin`
 /// at `bin_path` and a CUE file at `cue_path` referencing it. Audio
 /// tracks are byte-swapped back to little-endian on the way out
@@ -372,10 +477,11 @@ pub fn extract_to_cue(
     let guard = Cdrom::open(raw_chd)?;
     let cdrom = guard.as_ptr();
 
-    let n_tracks = unsafe { sys::chd_shim_cdrom_num_tracks(cdrom) };
-    if n_tracks == 0 {
-        return Err(ChdError::InvalidData);
-    }
+    // Pre-fetch every track: the split-frame handling in the read loop
+    // needs the previous track's geometry (frames/type/datasize), and
+    // reads go through physical CHD addressing.
+    let layout = DiscLayout::read(cdrom)?;
+    let tracks = &layout.tracks;
 
     // Open both outputs up front — easier cleanup if one fails.
     let bin_file = File::create(bin_path).map_err(|_| ChdError::InvalidFile)?;
@@ -389,22 +495,11 @@ pub fn extract_to_cue(
         .ok_or(ChdError::InvalidFile)?;
     writeln!(cue_writer, "FILE \"{}\" BINARY", bin_filename).map_err(|_| ChdError::InvalidFile)?;
 
-    // Pre-fetch every track: the split-frame handling in the read loop
-    // needs the previous track's geometry (frames/type/datasize), and
-    // reads go through physical CHD addressing.
-    let mut tracks = Vec::with_capacity(n_tracks as usize);
-    for i in 0..n_tracks {
-        let mut t = sys::ChdShimTrack::default();
-        unsafe { sys::chd_shim_cdrom_get_track(cdrom, i, &mut t) };
-        tracks.push(t);
-    }
-
     let mut sector = vec![0u8; RAW_SECTOR_SIZE];
     let mut written: u64 = 0;
     let mut frame_offset: u32 = 0;
 
-    for tracknum in 0..n_tracks as usize {
-        let t = tracks[tracknum];
+    for (tracknum, &t) in tracks.iter().enumerate() {
         let trktype = TrackType::from_raw(t.trktype).unwrap_or(TrackType::Mode1);
 
         // CUE TRACK / INDEX block.
@@ -443,58 +538,12 @@ pub fn extract_to_cue(
                 .map_err(|_| ChdError::InvalidFile)?;
         }
 
-        // Frame loop: emit `frames - padframes + splitframes` (matches
-        // chdman.cpp:2968), reading via *physical* CHD addressing. The
-        // logical track start (`get_track_start`) is inflated over the
-        // physical one by cumulative pregap, so feeding it to a phys=true
-        // read walks past the track's stored frames and fails ~`pregap`
-        // frames early on CD-Extra / mixed-mode discs. Mirror chdman's
-        // `do_extract_cd` (chdman.cpp:2974-2987) and `extract_to_gdi`:
-        // use `get_track_start_phys`, and pull the first `splitframes`
-        // frames from the tail of the previous track.
-        let cur_phys = unsafe { sys::chd_shim_cdrom_get_track_start_phys(cdrom, tracknum as u32) };
-        let prev_phys = if tracknum > 0 {
-            unsafe { sys::chd_shim_cdrom_get_track_start_phys(cdrom, (tracknum - 1) as u32) }
-        } else {
-            0
-        };
-
-        let actual_frames = t
-            .frames
-            .saturating_sub(t.padframes)
-            .saturating_add(t.splitframes);
-        for frame in 0..actual_frames {
-            // First `splitframes` frames of this track live at the tail of
-            // the previous track (reverse of GD-ROM CHD construction).
-            let (src, lba) = if tracknum > 0 && frame < t.splitframes {
-                let prev = tracks[tracknum - 1];
-                let frameofs = prev.frames.wrapping_sub(t.splitframes).wrapping_add(frame);
-                (prev, prev_phys.wrapping_add(frameofs))
-            } else {
-                let frameofs = frame.wrapping_sub(t.splitframes);
-                (t, cur_phys.wrapping_add(frameofs))
-            };
-            let ok = unsafe {
-                sys::chd_shim_cdrom_read_data(
-                    cdrom,
-                    lba,
-                    sector.as_mut_ptr() as *mut _,
-                    src.trktype,
-                    1, // phys=true: read at the physical CHD frame, like chdman
-                )
-            };
-            if ok == 0 {
-                return Err(ChdError::InvalidData);
-            }
-
-            let bytes_to_write = src.datasize as usize;
-            // Audio: byte-swap back to little-endian for CUE BINARY. chdman
-            // does this unconditionally for MODE_CUEBIN (chdman.cpp:2988).
-            if src.trktype == TrackType::Audio as u32 {
-                for i in (0..bytes_to_write).step_by(2) {
-                    sector.swap(i, i + 1);
-                }
-            }
+        // Frame loop: see `DiscLayout` for the phys-start / padframes /
+        // splitframes mapping. Audio is byte-swapped back to little-endian
+        // for CUE BINARY; chdman does this unconditionally for MODE_CUEBIN
+        // (chdman.cpp:2988).
+        for frame in 0..layout.emitted_frames(tracknum) {
+            let bytes_to_write = layout.read_frame(cdrom, tracknum, frame, &mut sector, true)?;
             bin_writer
                 .write_all(&sector[..bytes_to_write])
                 .map_err(|_| ChdError::InvalidFile)?;
@@ -607,10 +656,9 @@ pub fn extract_to_gdi(
     let guard = Cdrom::open(raw_chd)?;
     let cdrom = guard.as_ptr();
 
-    let n_tracks = unsafe { sys::chd_shim_cdrom_num_tracks(cdrom) };
-    if n_tracks == 0 {
-        return Err(ChdError::InvalidData);
-    }
+    let layout = DiscLayout::read(cdrom)?;
+    let tracks = &layout.tracks;
+    let n_tracks = tracks.len();
 
     // Output stem: gdi path with extension stripped. Track files are
     // siblings named "<stem>NN.<ext>".
@@ -619,13 +667,6 @@ pub fn extract_to_gdi(
         .and_then(|s| s.to_str())
         .ok_or(ChdError::InvalidFile)?;
     let dir = gdi_path.parent().unwrap_or_else(|| Path::new("."));
-
-    let mut tracks = Vec::with_capacity(n_tracks as usize);
-    for i in 0..n_tracks {
-        let mut t = sys::ChdShimTrack::default();
-        unsafe { sys::chd_shim_cdrom_get_track(cdrom, i, &mut t) };
-        tracks.push(t);
-    }
 
     let gdi_file = File::create(gdi_path).map_err(|_| ChdError::InvalidFile)?;
     let mut gdi_writer = BufWriter::new(gdi_file);
@@ -637,8 +678,7 @@ pub fn extract_to_gdi(
     // MODE_GDI). This is the per-track frame offset written to the index.
     let mut disc_offs: u32 = 0;
 
-    for tracknum in 0..n_tracks as usize {
-        let t = tracks[tracknum];
+    for (tracknum, &t) in tracks.iter().enumerate() {
         let trktype = TrackType::from_raw(t.trktype).unwrap_or(TrackType::Mode1);
         let is_audio = trktype == TrackType::Audio;
         let ext = if is_audio { "raw" } else { "bin" };
@@ -668,48 +708,10 @@ pub fn extract_to_gdi(
         let track_file = File::create(&track_path).map_err(|_| ChdError::InvalidFile)?;
         let mut track_writer = BufWriter::with_capacity(64 * 1024, track_file);
 
-        let cur_phys = unsafe { sys::chd_shim_cdrom_get_track_start_phys(cdrom, tracknum as u32) };
-        let prev_phys = if tracknum > 0 {
-            unsafe { sys::chd_shim_cdrom_get_track_start_phys(cdrom, (tracknum - 1) as u32) }
-        } else {
-            0
-        };
-
-        let actual_frames = t
-            .frames
-            .saturating_sub(t.padframes)
-            .saturating_add(t.splitframes);
-
-        for frame in 0..actual_frames {
-            // The first `splitframes` frames of this track live at the
-            // tail of the previous track; pull them from there.
-            let (src, lba) = if tracknum > 0 && frame < t.splitframes {
-                let prev = tracks[tracknum - 1];
-                let frameofs = prev.frames.wrapping_sub(t.splitframes).wrapping_add(frame);
-                (prev, prev_phys.wrapping_add(frameofs))
-            } else {
-                let frameofs = frame.wrapping_sub(t.splitframes);
-                (t, cur_phys.wrapping_add(frameofs))
-            };
-            let ok = unsafe {
-                sys::chd_shim_cdrom_read_data(
-                    cdrom,
-                    lba,
-                    sector.as_mut_ptr() as *mut _,
-                    src.trktype,
-                    1,
-                )
-            };
-            if ok == 0 {
-                return Err(ChdError::InvalidData);
-            }
-            let bytes = src.datasize as usize;
-            // Audio in GDI + CHD v5+ is stored big-endian; swap to LE.
-            if src.trktype == TrackType::Audio as u32 && version > 4 {
-                for i in (0..bytes).step_by(2) {
-                    sector.swap(i, i + 1);
-                }
-            }
+        // Same frame mapping as `extract_to_cue` (see `DiscLayout`). Audio
+        // in GDI + CHD v5+ is stored big-endian; swap to LE.
+        for frame in 0..layout.emitted_frames(tracknum) {
+            let bytes = layout.read_frame(cdrom, tracknum, frame, &mut sector, version > 4)?;
             track_writer
                 .write_all(&sector[..bytes])
                 .map_err(|_| ChdError::InvalidFile)?;
@@ -950,6 +952,243 @@ impl Read for CdCookedReader {
 }
 
 impl Seek for CdCookedReader {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        let total = self.len() as i128;
+        let new_pos: i128 = match pos {
+            SeekFrom::Start(v) => v as i128,
+            SeekFrom::End(v) => total + v as i128,
+            SeekFrom::Current(v) => self.pos as i128 + v as i128,
+        };
+        if new_pos < 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "seek before start",
+            ));
+        }
+        self.pos = new_pos as u64;
+        Ok(self.pos)
+    }
+}
+
+/// Raw 2352-byte sectors of a CD CHD, read on demand: the bytes
+/// [`extract_to_cue`] would write to its `.bin`, without extracting.
+///
+/// Audio is byte-swapped from CHD's big-endian to little-endian and the
+/// 96-byte subcode is dropped, exactly as [`extract_to_cue`] does, so
+/// consumers can stream or seek a Red Book track straight out of the CHD.
+///
+/// Two views:
+///
+/// - [`CdAudioReader::open`]: the whole disc in `extract_to_cue`'s single-BIN
+///   address space. Sector `N` is bytes `[N*2352 .. (N+1)*2352)` of the
+///   extracted `.bin`.
+/// - [`CdAudioReader::open_track`]: one track. Sector 0 is the track's first
+///   emitted frame, and the view equals that track's slice of the `.bin`.
+///
+/// **Data tracks** are readable too, as the same raw 2352-byte sectors the
+/// `.bin` holds (sync, header and ECC included); the whole-disc view needs
+/// them to mirror the BIN. A track stored as cooked data (`MODE1/2048`,
+/// `MODE2/2336`, ...) has no 2352-byte form in the `.bin`, so a view that
+/// would cover one is rejected with [`ChdError::UnsupportedFormat`]. Use
+/// [`CdCookedReader`] for those.
+///
+/// Random access is cheap: a read maps the sector straight to its physical
+/// CHD frame, and MAME's `chd_file` caches the hunk last decompressed
+/// (8 frames per hunk by default), so sequential reads decode each hunk
+/// once.
+///
+/// The type is `Send` but every read takes `&mut self`. To share one reader
+/// with a playback thread behind a `&self` trait, wrap it in a `Mutex`.
+pub struct CdAudioReader {
+    chd: Chd,
+    cdrom: *mut sys::ChdShimCdrom,
+    layout: DiscLayout,
+    /// `(track index, first sector in this view)` for each track the view
+    /// covers, ascending by sector.
+    spans: Vec<(usize, u32)>,
+    sector_count: u32,
+    pos: u64,
+    cache_sector: Option<u32>,
+    cache: [u8; RAW_SECTOR_SIZE],
+}
+
+unsafe impl Send for CdAudioReader {}
+
+impl CdAudioReader {
+    /// Size of every sector this reader returns.
+    pub const SECTOR_SIZE: usize = RAW_SECTOR_SIZE;
+
+    /// Open the whole disc in [`extract_to_cue`]'s single-BIN address space.
+    ///
+    /// Errors:
+    /// - [`ChdError::NotCdMedia`] if `chd` isn't a CD/GD-ROM CHD.
+    /// - [`ChdError::UnsupportedFormat`] if any track is stored cooked
+    ///   (datasize other than 2352), since the `.bin` would not be a
+    ///   uniform run of 2352-byte sectors.
+    pub fn open(chd: Chd) -> Result<Self> {
+        let cdrom = Cdrom::open(chd.raw_ptr())?;
+        let layout = DiscLayout::read(cdrom.as_ptr())?;
+        let mut spans = Vec::with_capacity(layout.tracks.len());
+        let mut start: u32 = 0;
+        for t in 0..layout.tracks.len() {
+            if !layout.track_is_raw(t) {
+                return Err(ChdError::UnsupportedFormat);
+            }
+            spans.push((t, start));
+            start = start
+                .checked_add(layout.emitted_frames(t))
+                .ok_or(ChdError::InvalidData)?;
+        }
+        Ok(Self::new(chd, cdrom, layout, spans, start))
+    }
+
+    /// Open one track. `track_index` is 0-based; sector 0 is the track's
+    /// first emitted frame (the start of its slice of the `.bin`, pregap
+    /// data included when the CHD stores it).
+    ///
+    /// Accepts audio and raw (2352-byte) data tracks.
+    ///
+    /// Errors:
+    /// - [`ChdError::NotCdMedia`] if `chd` isn't a CD/GD-ROM CHD.
+    /// - [`ChdError::InvalidData`] if `track_index` is out of range.
+    /// - [`ChdError::UnsupportedFormat`] if the track is stored cooked
+    ///   (datasize other than 2352).
+    pub fn open_track(chd: Chd, track_index: u32) -> Result<Self> {
+        let cdrom = Cdrom::open(chd.raw_ptr())?;
+        let layout = DiscLayout::read(cdrom.as_ptr())?;
+        let t = track_index as usize;
+        if t >= layout.tracks.len() {
+            return Err(ChdError::InvalidData);
+        }
+        if !layout.track_is_raw(t) {
+            return Err(ChdError::UnsupportedFormat);
+        }
+        let count = layout.emitted_frames(t);
+        Ok(Self::new(chd, cdrom, layout, vec![(t, 0)], count))
+    }
+
+    fn new(
+        chd: Chd,
+        cdrom: Cdrom,
+        layout: DiscLayout,
+        spans: Vec<(usize, u32)>,
+        sector_count: u32,
+    ) -> Self {
+        Self {
+            chd,
+            // Ownership moves into the struct, which frees it in Drop /
+            // into_inner.
+            cdrom: cdrom.into_raw(),
+            layout,
+            spans,
+            sector_count,
+            pos: 0,
+            cache_sector: None,
+            cache: [0u8; RAW_SECTOR_SIZE],
+        }
+    }
+
+    /// Number of 2352-byte sectors in this view.
+    pub fn sector_count(&self) -> u32 {
+        self.sector_count
+    }
+
+    /// Length of this view in bytes (`sector_count * 2352`).
+    pub fn len(&self) -> u64 {
+        self.sector_count as u64 * RAW_SECTOR_SIZE as u64
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sector_count == 0
+    }
+
+    /// Read `count` sectors starting at sector `start` into `buf`, which
+    /// must be exactly `count * 2352` bytes long.
+    ///
+    /// Errors with [`ChdError::InvalidData`] if the range runs past
+    /// [`sector_count`](Self::sector_count), if `buf` is the wrong length,
+    /// or if MAME fails to read a frame. Doesn't move the `Read` position.
+    pub fn read_sectors(&mut self, start: u32, count: u32, buf: &mut [u8]) -> Result<()> {
+        let end = start.checked_add(count).ok_or(ChdError::InvalidData)?;
+        if end > self.sector_count || buf.len() != count as usize * RAW_SECTOR_SIZE {
+            return Err(ChdError::InvalidData);
+        }
+        for (sector, chunk) in (start..end).zip(buf.as_chunks_mut::<RAW_SECTOR_SIZE>().0) {
+            self.read_one(sector, chunk)?;
+        }
+        Ok(())
+    }
+
+    /// Recover the underlying [`Chd`].
+    pub fn into_inner(self) -> Chd {
+        let mut this = std::mem::ManuallyDrop::new(self);
+        // SAFETY: `this` is never used or dropped again; each owned field
+        // is released exactly once here.
+        unsafe {
+            sys::chd_shim_cdrom_free(this.cdrom);
+            std::ptr::drop_in_place(&mut this.layout);
+            std::ptr::drop_in_place(&mut this.spans);
+            std::ptr::read(&this.chd)
+        }
+    }
+
+    fn read_one(&self, sector: u32, buf: &mut [u8]) -> Result<()> {
+        // Last span starting at or before `sector`. A zero-length track
+        // shares its start with the next one; picking the last skips it.
+        let i = self.spans.partition_point(|&(_, s)| s <= sector) - 1;
+        let (track, first) = self.spans[i];
+        let n = self
+            .layout
+            .read_frame(self.cdrom, track, sector - first, buf, true)?;
+        debug_assert_eq!(n, RAW_SECTOR_SIZE);
+        Ok(())
+    }
+
+    fn load_sector(&mut self, sector: u32) -> io::Result<()> {
+        if self.cache_sector == Some(sector) {
+            return Ok(());
+        }
+        self.cache_sector = None;
+        let mut cache = [0u8; RAW_SECTOR_SIZE];
+        self.read_one(sector, &mut cache).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "chd_shim_cdrom_read_data failed",
+            )
+        })?;
+        self.cache = cache;
+        self.cache_sector = Some(sector);
+        Ok(())
+    }
+}
+
+impl Drop for CdAudioReader {
+    fn drop(&mut self) {
+        if !self.cdrom.is_null() {
+            unsafe { sys::chd_shim_cdrom_free(self.cdrom) };
+        }
+    }
+}
+
+impl Read for CdAudioReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let total = self.len();
+        if self.pos >= total || buf.is_empty() {
+            return Ok(0);
+        }
+        let remaining = total - self.pos;
+        let want = (buf.len() as u64).min(remaining) as usize;
+        let sector = (self.pos / RAW_SECTOR_SIZE as u64) as u32;
+        let off = (self.pos % RAW_SECTOR_SIZE as u64) as usize;
+        let n = want.min(RAW_SECTOR_SIZE - off);
+        self.load_sector(sector)?;
+        buf[..n].copy_from_slice(&self.cache[off..off + n]);
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+impl Seek for CdAudioReader {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         let total = self.len() as i128;
         let new_pos: i128 = match pos {

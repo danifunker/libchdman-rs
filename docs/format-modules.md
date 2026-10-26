@@ -166,6 +166,13 @@ Defaults: hunk_size 19584 (8 frames × 2448 bytes), codecs `[cdlz, cdzl, cdfl, 0
   across track boundaries; subcode is dropped (GDI cannot carry it). A
   `.gdi` round-trips: feeding it to `create_from_cue` produces a GD-ROM
   CHD (reports `is_gd`), and `extract_to_gdi` reproduces the track files.
+- [`CdAudioReader`] is the streaming counterpart of `extract_to_cue`:
+  raw 2352-byte sectors (audio little-endian, subcode dropped) read on
+  demand, byte-identical to the `.bin`. `open` gives the whole disc in
+  the BIN's address space; `open_track` gives one track's slice. Both
+  share `extract_to_cue`'s frame mapping, so they can't drift. Cooked
+  data tracks (`MODE1/2048` etc.) aren't 2352-byte in the BIN and are
+  rejected with `UnsupportedFormat`; use [`CdCookedReader`] for those.
 
 ## `copy`
 

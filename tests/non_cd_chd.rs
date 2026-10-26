@@ -23,7 +23,7 @@
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
-use libchdman_rs::cd::{self, CdCookedReader, CD_FRAME_SIZE, DEFAULT_HUNK_SIZE};
+use libchdman_rs::cd::{self, CdAudioReader, CdCookedReader, CD_FRAME_SIZE, DEFAULT_HUNK_SIZE};
 use libchdman_rs::dvd::{self, DvdCreateOptions};
 use libchdman_rs::hd::{self, HdCreateOptions};
 use libchdman_rs::{Chd, ChdError, CHD_CODEC_NONE};
@@ -128,6 +128,12 @@ fn assert_all_cd_entry_points_err(chd_path: &Path, dir: &Path, expected: ChdErro
 
     let chd = Chd::open(path_str, false, None).expect("open chd");
     assert!(matches!(CdCookedReader::open_track(chd, 0), Err(e) if e == expected));
+
+    let chd = Chd::open(path_str, false, None).expect("open chd");
+    assert!(matches!(CdAudioReader::open(chd), Err(e) if e == expected));
+
+    let chd = Chd::open(path_str, false, None).expect("open chd");
+    assert!(matches!(CdAudioReader::open_track(chd, 0), Err(e) if e == expected));
 }
 
 #[test]
