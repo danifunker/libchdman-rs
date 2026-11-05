@@ -2172,7 +2172,9 @@ std::error_condition chd_file::compress_v5_map()
 		// for COMPRESSION_SELF: selfbits
 		// for COMPRESSION_PARENT: parentbits
 		// the overall size is clamped later with bitbuf.flush()
-		int nbits_needed = (8*16) + (12 + std::max<int>({lengthbits+16, selfbits, parentbits}))*m_hunkcount;
+		// plus the RLE-exported huffman tree itself: 16 codes, at most 2 x 5 bits each
+		// (libchdman-rs: without it a 1- or 2-hunk map overflows; MAME writes a bad map there)
+		int nbits_needed = (8*16) + (16*2*5) + (12 + std::max<int>({lengthbits+16, selfbits, parentbits}))*m_hunkcount;
 		std::vector<uint8_t> compressed(nbits_needed / 8 + 1);
 		bitstream_out bitbuf(&compressed[16], compressed.size() - 16);
 

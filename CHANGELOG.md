@@ -5,6 +5,20 @@ a patch counter (`0.<mame>.<N>`) — see the Versioning section of `RELEASING.md
 Releases before `0.288.10` are documented only in their GitHub Release
 notes and git history.
 
+## 0.289.4
+
+### Fixed
+
+- **A CHD of one or two hunks no longer aborts the process.** MAME's
+  `compress_v5_map` sizes its output buffer for the header and the map
+  entries but not for the RLE-exported huffman tree at its start, so with a
+  one- or two-hunk image (8 KiB or less at the default 4 KiB hunk) the tree
+  overflowed it and the `!bitbuf.overflow()` assertion killed the process.
+  Upstream chdman, built without assertions, writes a map that
+  `chdman verify` then rejects. The buffer now allows 160 bits for the tree
+  (16 codes, at most 2 x 5 bits each). Test:
+  `hd_roundtrip::tiny_images_of_one_or_two_hunks_round_trip`.
+
 ## 0.289.3
 
 ### Added

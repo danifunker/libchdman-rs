@@ -111,6 +111,33 @@ fn roundtrip_codec_matrix() {
     }
 }
 
+/// A one- or two-hunk map used to overflow its buffer in `compress_v5_map` (the huffman
+/// tree had no room), aborting the process; MAME's own chdman wrote a bad map there.
+#[test]
+fn tiny_images_of_one_or_two_hunks_round_trip() {
+    for len in [512usize, 4096, 8192, 12288] {
+        for payload in [vec![0u8; len], synth(len)] {
+            let dir = tmpdir();
+            let chd_path = dir.path().join("tiny.chd");
+            let opts = HdCreateOptions {
+                logical_size: len as u64,
+                ..Default::default()
+            };
+            hd::create_from_reader(
+                Cursor::new(payload.clone()),
+                &chd_path,
+                opts,
+                &mut |_| {},
+                &|| false,
+            )
+            .unwrap_or_else(|e| panic!("create {len} bytes failed: {e:?}"));
+            let mut out = Vec::new();
+            hd::extract_to_writer(&chd_path, &mut out, &mut |_| {}).unwrap();
+            assert_eq!(out, payload, "{len}-byte image round trip");
+        }
+    }
+}
+
 #[test]
 fn zero_pads_short_reader() {
     // Reader provides 1000 bytes but logical_size = 4096 (one hunk).
