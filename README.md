@@ -322,7 +322,10 @@ links it statically.
 | Triple                              | Notes                                  |
 |-------------------------------------|----------------------------------------|
 | `x86_64-unknown-linux-gnu`          | Three glibc floors (see below)         |
-| `aarch64-unknown-linux-gnu`         | Three glibc floors                     |
+| `aarch64-unknown-linux-gnu`         | Two glibc floors (2.35, 2.39)          |
+| `armv7-unknown-linux-gnueabihf`     | glibc 2.31 (MiSTer); cross             |
+| `x86_64-unknown-linux-musl`         | Static libstdc++ inside; fully static binaries |
+| `aarch64-unknown-linux-musl`        | Static libstdc++ inside; fully static binaries |
 | `riscv64gc-unknown-linux-gnu`       | Two glibc floors (2.35, 2.39); cross   |
 | `x86_64-apple-darwin`               | `MACOSX_DEPLOYMENT_TARGET=10.13`       |
 | `aarch64-apple-darwin`              | `MACOSX_DEPLOYMENT_TARGET=10.13`       |
@@ -344,27 +347,28 @@ cannot be executed on a CI runner. The `aarch64-apple-ios-sim` archive is
 additionally run in a booted simulator, and both are built from the same
 sources with the same compiler.
 
-Targets not in the list (musl, BSD, anything exotic) fall back to source
+Targets not in the list (BSD, 32-bit musl, anything exotic) fall back to source
 build automatically when `LIBCHDMAN_PREBUILT_FALLBACK=1` is set; otherwise
 the build will fail with a clear message.
 
 ### Linux: picking a glibc floor
 
-Linux archives are built against two glibc versions, and you choose
+Linux glibc archives are built against up to three glibc versions, and you choose
 which floor your binary should require:
 
 | `LIBCHDMAN_GLIBC` | glibc floor | Built on Ubuntu | Works on (examples)               |
 |-------------------|-------------|-----------------|-----------------------------------|
+| `2.31`            | 2.31        | 20.04           | Debian 11, RHEL 9 (x86_64, armv7 only) |
 | `2.35` (default)  | 2.35        | 22.04           | Debian 12, RHEL 9, modern distros |
 | `2.39`            | 2.39        | 24.04           | Newest distros only               |
 
 If unset (or `auto`), the build script picks `2.35` — the modern sweet
 spot. macOS and Windows builds ignore this variable.
 
-> The previous `2.31` floor (Debian 11 / RHEL 8 era) was dropped when
-> GitHub retired the `ubuntu-20.04` runner image. Consumers on older
-> distros should fall back to source build with
-> `LIBCHDMAN_PREBUILT_FALLBACK=1`.
+> The x86_64 `2.31` archive is built in an `ubuntu:20.04` container with
+> g++-10 (GitHub retired the `ubuntu-20.04` runner). musl targets take no
+> glibc floor: their archive includes a static libstdc++, so a musl binary
+> links it with only `musl-tools` installed.
 
 ### Escape hatches
 

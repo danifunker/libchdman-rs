@@ -405,6 +405,8 @@ fn try_use_prebuilt() -> Result<(), String> {
 
     let is_windows_msvc = target.contains("pc-windows-msvc");
     let is_linux_gnu = target.contains("unknown-linux-gnu");
+    // The musl archives carry their own static libstdc++, so a consumer needs no musl C++ toolchain.
+    let is_linux_musl = target.contains("unknown-linux-musl");
     // Every Apple platform shares the archive layout, the `.a` extension,
     // and libc++ linkage — only the triple differs (`apple-darwin`,
     // `apple-ios`, `apple-ios-sim`). `apple-ios` matches the simulator
@@ -437,10 +439,10 @@ fn try_use_prebuilt() -> Result<(), String> {
         return Ok(());
     }
 
-    if !(is_windows_msvc || is_linux_gnu || is_apple) {
+    if !(is_windows_msvc || is_linux_gnu || is_linux_musl || is_apple) {
         return Err(format!(
             "no prebuilt archive published for target `{target}` (supported: \
-             *-unknown-linux-gnu, *-apple-darwin, *-apple-ios, \
+             *-unknown-linux-gnu, *-unknown-linux-musl, *-apple-darwin, *-apple-ios, \
              *-apple-ios-sim, *-pc-windows-msvc)"
         ));
     }
@@ -459,13 +461,13 @@ fn try_use_prebuilt() -> Result<(), String> {
                     "2.35"
                 }
             }
-            "2.31" | "2.35" | "2.39" => raw.as_str(),
+            "2.31" if target.contains("armv7") || target.starts_with("x86_64") => "2.31",
+            "2.35" | "2.39" => raw.as_str(),
             other => {
                 return Err(format!(
-                    "LIBCHDMAN_GLIBC={other} not recognized \
+                    "LIBCHDMAN_GLIBC={other} not recognized for `{target}` \
                      (expected 2.31, 2.35, 2.39, or auto). \
-                     The 2.31 floor is available for armv7 only; \
-                     x86_64/aarch64 minimum is 2.35."
+                     The 2.31 floor is available for armv7 and x86_64 only."
                 ));
             }
         };
