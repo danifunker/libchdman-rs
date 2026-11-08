@@ -76,7 +76,7 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm -v "$PWD:/src" -w /src -e NAME="libchdman_rs-${{ matrix.target }}.a" alpine:3.20 sh -euc '
-            apk add -q build-base curl git file
+            apk add -q build-base linux-headers curl git file
             curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal >/dev/null
             . "$HOME/.cargo/env"
             CARGO_TARGET_DIR=/src/target-alpine cargo build --release

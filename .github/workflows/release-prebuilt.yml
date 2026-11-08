@@ -495,6 +495,7 @@ jobs:
   # musl: built natively on Alpine, with Alpine's static libstdc++ merged in, so a fully static
   # Rust musl binary links it with no musl C++ toolchain on the consumer's machine. Alpine runs via
   # `docker run` rather than `container:` because the runner's Node does not run on arm64 Alpine.
+  # linux-headers carries asm/hwcap.h, which LZMA's CpuArch.c includes on aarch64.
   build-linux-musl:
     needs: preflight
     name: Linux ${{ matrix.target }}
@@ -515,7 +516,7 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm -v "$PWD:/src" -w /src -e NAME="libchdman_rs-${{ matrix.target }}.a" alpine:3.20 sh -euc '
-            apk add -q build-base curl git file
+            apk add -q build-base linux-headers curl git file
             curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal >/dev/null
             . "$HOME/.cargo/env"
             CARGO_TARGET_DIR=/src/target-alpine cargo build --release
