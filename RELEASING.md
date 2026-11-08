@@ -52,6 +52,8 @@ archives, and a `cargo publish` to crates.io.
   exported `chd_shim_*` symbols) → smoke-tested against
   `examples/check-prebuilt.rs` → uploaded:
   - `build-linux`: `x86_64` and `aarch64` × glibc **2.35** and **2.39** (4)
+  - `build-linux-x86_64-glibc231`: `x86_64` glibc **2.31**, in an `ubuntu:20.04` container (1)
+  - `build-linux-musl`: `x86_64` and `aarch64` musl, built on Alpine with a static libstdc++ (2)
   - `build-linux-armv7`: `armv7-...-gnueabihf` glibc **2.31** (1)
   - `build-linux-riscv64`: `riscv64gc` × glibc **2.35** and **2.39** (2)
   - `build-macos`: `x86_64` and `aarch64` (2)
@@ -60,7 +62,7 @@ archives, and a `cargo publish` to crates.io.
 - **`release` job** downloads all artifacts and creates the GitHub Release,
   **tagging at the dispatched commit** (`target_commitish: github.sha`). You
   do **not** create the tag by hand — this workflow does.
-- Net output: **14 archives + 14 `.sha256` sidecars = 28 assets**. If you
+- Net output: **17 archives + 17 `.sha256` sidecars = 34 assets**. If you
   change the matrix, update the expected count in `publish-crates-io.yml`
   (and the asset-count gate).
 
@@ -81,7 +83,7 @@ and cargo.
 - **Trigger:** manual `workflow_dispatch` with `tag` and optional
   `dry_run` inputs.
 - **Preflight** checks out the tag and verifies: `Cargo.toml` version
-  matches the tag; the GitHub Release exists with **≥ 24 assets** (i.e.
+  matches the tag; the GitHub Release exists with **≥ 34 assets** (i.e.
   `release-prebuilt.yml` has already finished for this tag); the packaged
   tarball is sane: C/C++ only under `mame-chd-src/` and `sys/`, no
   `deps/`, `mame-chd-src/MAME_VERSION` present, under 4 MB.
@@ -121,7 +123,7 @@ before dispatching `release-prebuilt.yml` and again before
    gh workflow run release-prebuilt.yml --ref main -f tag=v0.288.9
    gh run watch "$(gh run list --workflow=release-prebuilt.yml --limit 1 --json databaseId --jq '.[0].databaseId')" --exit-status
    ```
-   On success this creates the `v0.288.9` tag + GitHub Release with all 24
+   On success this creates the `v0.288.9` tag + GitHub Release with all 34
    assets. Preflight rejects a mismatched/duplicate tag.
 
 5. **[confirm]** Publish to crates.io (optionally dry-run first):
@@ -147,7 +149,8 @@ first.
 
 2. **Consuming side** — usually no `build.rs` change: it keys Linux off
    `unknown-linux-gnu` (routed through the `LIBCHDMAN_GLIBC` floor logic,
-   auto → 2.35) and Windows off `pc-windows-msvc`. Asset name is
+   auto → 2.35), `unknown-linux-musl` (no floor suffix) and Windows off
+   `pc-windows-msvc`. Asset name is
    `libchdman_rs-<target>[-glibcX.Y].{a|lib}`.
 
 3. **Throwaway validation** — on the feature branch, add a temporary
@@ -175,7 +178,7 @@ first.
 - **Version/​tag must agree.** Bump `Cargo.toml` (and `Cargo.lock`) before
   dispatching; both workflows' preflights compare `${tag#v}` to the crate
   version.
-- **Asset count.** The expected `24` in `publish-crates-io.yml` is
+- **Asset count.** The expected `34` in `publish-crates-io.yml` is
   `matrix archives × 2`. Keep it in sync when the matrix changes.
 - CI, and any local `cargo build`/`cargo test`, exercise the from-source
   path (`LIBCHDMAN_FORCE_SOURCE=1`); the `prebuilt` feature only resolves

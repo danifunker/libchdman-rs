@@ -5,6 +5,19 @@ a patch counter (`0.<mame>.<N>`) — see the Versioning section of `RELEASING.md
 Releases before `0.288.10` are documented only in their GitHub Release
 notes and git history.
 
+## 0.289.5
+
+### Added
+
+- **Prebuilt archives for musl.** `x86_64-unknown-linux-musl` and
+  `aarch64-unknown-linux-musl`, built on Alpine 3.20 with its static
+  libstdc++ merged in, so a fully static Rust musl binary links them with
+  only `musl-tools` on the build host and no musl C++ toolchain.
+- **The x86_64 glibc 2.31 prebuilt is back** (Ubuntu 20.04, Debian 11,
+  RHEL 9). It was dropped with GitHub's `ubuntu-20.04` runner; it now builds
+  in an `ubuntu:20.04` container with g++-10, as the armv7 one does.
+  Select it with `LIBCHDMAN_GLIBC=2.31`; the default floor stays 2.35.
+
 ## 0.289.4
 
 ### Fixed
