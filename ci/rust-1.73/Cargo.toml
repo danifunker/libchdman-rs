@@ -8,6 +8,6 @@ rust-version = "1.73"
 publish = false
 
 [dependencies]
-libchdman-rs = { path = "../..", default-features = false }
+libchdman-rs = { path = "../..", default-features = false, features = ["prebuilt"] }
 
 [workspace]
