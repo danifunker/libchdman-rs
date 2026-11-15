@@ -51,10 +51,10 @@ impl Default for DvdCreateOptions {
 }
 
 fn validate(opts: &DvdCreateOptions) -> Result<()> {
-    if opts.hunk_size == 0 || !opts.hunk_size.is_multiple_of(DVD_SECTOR_SIZE) {
+    if opts.hunk_size == 0 || opts.hunk_size % DVD_SECTOR_SIZE != 0 {
         return Err(ChdError::InvalidData);
     }
-    if opts.logical_size == 0 || !opts.logical_size.is_multiple_of(u64::from(DVD_SECTOR_SIZE)) {
+    if opts.logical_size == 0 || opts.logical_size % u64::from(DVD_SECTOR_SIZE) != 0 {
         return Err(ChdError::InvalidData);
     }
     Ok(())

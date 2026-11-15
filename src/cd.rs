@@ -434,7 +434,7 @@ impl DiscLayout {
         }
         let bytes = src.datasize as usize;
         if swap_audio && src.trktype == TrackType::Audio as u32 {
-            for pair in buf[..bytes].as_chunks_mut::<2>().0 {
+            for pair in buf[..bytes].chunks_exact_mut(2) {
                 pair.swap(0, 1);
             }
         }
@@ -1113,7 +1113,7 @@ impl CdAudioReader {
         if end > self.sector_count || buf.len() != count as usize * RAW_SECTOR_SIZE {
             return Err(ChdError::InvalidData);
         }
-        for (sector, chunk) in (start..end).zip(buf.as_chunks_mut::<RAW_SECTOR_SIZE>().0) {
+        for (sector, chunk) in (start..end).zip(buf.chunks_exact_mut(RAW_SECTOR_SIZE)) {
             self.read_one(sector, chunk)?;
         }
         Ok(())

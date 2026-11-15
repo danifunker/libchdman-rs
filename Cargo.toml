@@ -1,6 +1,6 @@
 [package]
 name = "libchdman-rs"
-version = "0.289.5"
+version = "0.289.6"
 edition = "2021"
 authors = ["danifunker"]
 description = "Rust wrapper around MAME's CHD (Compressed Hunks of Data) core. Supports CD/DVD/HD CHD read+write. Builds offline from the vendored MAME CHD source, or links pre-built static archives via the `prebuilt` feature."
@@ -41,7 +41,7 @@ zip = "8"
 [build-dependencies]
 cc = { version = "1.0", features = ["parallel"] }
 ureq = { version = "3", default-features = false, features = ["rustls"], optional = true }
-sha2 = { version = "0.11", optional = true }
+sha2 = { version = ">=0.10, <0.12", optional = true }
 hex = { version = "0.4", optional = true }
 
 [features]

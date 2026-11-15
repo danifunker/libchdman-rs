@@ -390,5 +390,5 @@ impl Chd {
 }
 
 fn chd_err_to_io(err: ChdError) -> io::Error {
-    io::Error::other(format!("CHD error: {:?}", err))
+    io::Error::new(io::ErrorKind::Other, format!("CHD error: {:?}", err))
 }

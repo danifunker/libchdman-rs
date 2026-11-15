@@ -5,6 +5,20 @@ a patch counter (`0.<mame>.<N>`) — see the Versioning section of `RELEASING.md
 Releases before `0.288.10` are documented only in their GitHub Release
 notes and git history.
 
+## 0.289.6
+
+### Fixed
+
+- **Builds from source on Rust 1.73**, the last toolchain that targets macOS
+  10.7. The crate's own code used `is_multiple_of`, `as_chunks_mut` and
+  `io::Error::other`, all newer than 1.73; they are now `%`, `chunks_exact_mut`
+  and `io::Error::new`, with the same behaviour (every divisor is checked
+  non-zero first). A new CI job, `rust-1-73`, builds `ci/rust-1.73` on 1.73
+  for a 10.7 target with `LIBCHDMAN_CPU=portable` and checks the floor.
+- **The `prebuilt` feature builds on Rust 1.73 too.** `sha2` is now
+  `>=0.10, <0.12`: a 1.73 lockfile resolves 0.10 (0.11 is edition 2024),
+  newer toolchains keep 0.11. The 1.73 CI job builds with `prebuilt` on.
+
 ## 0.289.5
 
 ### Added

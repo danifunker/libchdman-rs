@@ -41,3 +41,4 @@ outputs/
 tests/fixtures/*.iso
 tests/fixtures/*.cue
 tests/fixtures/*.bin
+/ci/rust-1.73/target
