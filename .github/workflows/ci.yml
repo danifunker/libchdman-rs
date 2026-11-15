@@ -34,6 +34,30 @@ jobs:
       - name: Test (no features)
         run: cargo test
 
+  # Rust 1.73 is the last toolchain that targets macOS 10.7, and Rusty Backup's 10.7 app builds this
+  # crate from source with it. ci/rust-1.73 is that consumer, with a lockfile resolved for 1.73.
+  rust-1-73:
+    name: Rust 1.73 source build (macOS 10.7 target)
+    runs-on: macos-latest
+    env:
+      LIBCHDMAN_CPU: portable
+      MACOSX_DEPLOYMENT_TARGET: '10.7'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.73.0
+          targets: x86_64-apple-darwin
+      - name: Build
+        working-directory: ci/rust-1.73
+        run: cargo build --release --target x86_64-apple-darwin --locked
+      - name: Check the 10.7 floor
+        working-directory: ci/rust-1.73
+        run: |
+          otool -l target/x86_64-apple-darwin/release/libchdman-rust-1-73 | grep -A3 -E 'LC_VERSION_MIN_MACOSX|LC_BUILD_VERSION' | tee /dev/stderr | grep -qE '(version|minos) 10\.7'
+
   # iOS can't be covered by the `test` matrix above: the toolchain has to
   # cross-compile, and a device binary can't be executed at all. Without
   # this job an iOS break would first surface when `release-prebuilt.yml`

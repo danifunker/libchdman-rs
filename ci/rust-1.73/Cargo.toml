@@ -1,0 +1,13 @@
+# Builds libchdman-rs from source on Rust 1.73 for a macOS 10.7 target, the way Rusty Backup's
+# 10.7 app uses it (`ci.yml`, job rust-1-73). Its own workspace, with a lockfile resolved for 1.73.
+[package]
+name = "libchdman-rust-1-73"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.73"
+publish = false
+
+[dependencies]
+libchdman-rs = { path = "../..", default-features = false }
+
+[workspace]

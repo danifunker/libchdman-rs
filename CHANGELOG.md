@@ -5,6 +5,17 @@ a patch counter (`0.<mame>.<N>`) — see the Versioning section of `RELEASING.md
 Releases before `0.288.10` are documented only in their GitHub Release
 notes and git history.
 
+## 0.289.6
+
+### Fixed
+
+- **Builds from source on Rust 1.73**, the last toolchain that targets macOS
+  10.7. The crate's own code used `is_multiple_of`, `as_chunks_mut` and
+  `io::Error::other`, all newer than 1.73; they are now `%`, `chunks_exact_mut`
+  and `io::Error::new`, with the same behaviour (every divisor is checked
+  non-zero first). A new CI job, `rust-1-73`, builds `ci/rust-1.73` on 1.73
+  for a 10.7 target with `LIBCHDMAN_CPU=portable` and checks the floor.
+
 ## 0.289.5
 
 ### Added

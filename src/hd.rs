@@ -85,7 +85,7 @@ pub fn compute_chs(logical_bytes: u64, sector_size: u32) -> Result<HdGeometry> {
     if logical_bytes == 0 || sector_size == 0 {
         return Err(ChdError::InvalidData);
     }
-    if !logical_bytes.is_multiple_of(u64::from(sector_size)) {
+    if logical_bytes % u64::from(sector_size) != 0 {
         return Err(ChdError::InvalidData);
     }
 
@@ -93,10 +93,10 @@ pub fn compute_chs(logical_bytes: u64, sector_size: u32) -> Result<HdGeometry> {
     let mut total: u64 = initial;
     loop {
         for cur_sectors in (2u32..=63).rev() {
-            if total.is_multiple_of(u64::from(cur_sectors)) {
+            if total % u64::from(cur_sectors) == 0 {
                 let total_heads = total / u64::from(cur_sectors);
                 for cur_heads in (2u32..=16).rev() {
-                    if total_heads.is_multiple_of(u64::from(cur_heads)) {
+                    if total_heads % u64::from(cur_heads) == 0 {
                         let cylinders = (total_heads / u64::from(cur_heads)) as u32;
                         return Ok(HdGeometry {
                             cylinders,
@@ -156,10 +156,10 @@ fn validate_options(o: &HdCreateOptions) -> Result<()> {
     if o.unit_size == 0 || o.hunk_size == 0 {
         return Err(ChdError::InvalidData);
     }
-    if !o.hunk_size.is_multiple_of(o.unit_size) {
+    if o.hunk_size % o.unit_size != 0 {
         return Err(ChdError::InvalidData);
     }
-    if !o.logical_size.is_multiple_of(u64::from(o.unit_size)) {
+    if o.logical_size % u64::from(o.unit_size) != 0 {
         return Err(ChdError::InvalidData);
     }
     Ok(())
