@@ -84,7 +84,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          builddir=$(ls -d target/${{ matrix.target }}/release/build/libchdman-rs-*/out | head -1)
+          # Cargo 1.100 moved build-script output from build/<pkg>-<hash>/out to build/<pkg>/<hash>/out;
+          # take whichever holds the shim archive (a host-side build dir may exist too, empty).
+          builddir=""
+          for d in target/${{ matrix.target }}/release/build/libchdman-rs-*/out target/${{ matrix.target }}/release/build/libchdman-rs/*/out; do
+            if ls "$d"/*chd_shim* >/dev/null 2>&1; then builddir=$d; break; fi
+          done
           if [ -z "${builddir:-}" ]; then
             echo "ERROR: build output dir not found"
             find target/${{ matrix.target }}/release/build -maxdepth 3 -type d || true
@@ -146,7 +151,12 @@ jobs:
       - name: Merge static libs into single archive
         run: |
           set -euo pipefail
-          builddir=$(ls -d target/${{ matrix.target }}/release/build/libchdman-rs-*/out | head -1)
+          # Cargo 1.100 moved build-script output from build/<pkg>-<hash>/out to build/<pkg>/<hash>/out;
+          # take whichever holds the shim archive (a host-side build dir may exist too, empty).
+          builddir=""
+          for d in target/${{ matrix.target }}/release/build/libchdman-rs-*/out target/${{ matrix.target }}/release/build/libchdman-rs/*/out; do
+            if ls "$d"/*chd_shim* >/dev/null 2>&1; then builddir=$d; break; fi
+          done
           mkdir -p out
           name="libchdman_rs-${{ matrix.target }}.a"
           libtool -static -o "out/$name" "$builddir"/lib*.a
@@ -197,7 +207,12 @@ jobs:
       - name: Merge static libs into single archive
         run: |
           set -euo pipefail
-          builddir=$(ls -d target/${{ matrix.target }}/release/build/libchdman-rs-*/out | head -1)
+          # Cargo 1.100 moved build-script output from build/<pkg>-<hash>/out to build/<pkg>/<hash>/out;
+          # take whichever holds the shim archive (a host-side build dir may exist too, empty).
+          builddir=""
+          for d in target/${{ matrix.target }}/release/build/libchdman-rs-*/out target/${{ matrix.target }}/release/build/libchdman-rs/*/out; do
+            if ls "$d"/*chd_shim* >/dev/null 2>&1; then builddir=$d; break; fi
+          done
           mkdir -p out
           name="libchdman_rs-${{ matrix.target }}.a"
           libtool -static -o "out/$name" "$builddir"/lib*.a
@@ -326,7 +341,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          builddir=$(ls -d target/${{ matrix.target }}/release/build/libchdman-rs-*/out | head -1)
+          # Cargo 1.100 moved build-script output from build/<pkg>-<hash>/out to build/<pkg>/<hash>/out;
+          # take whichever holds the shim archive (a host-side build dir may exist too, empty).
+          builddir=""
+          for d in target/${{ matrix.target }}/release/build/libchdman-rs-*/out target/${{ matrix.target }}/release/build/libchdman-rs/*/out; do
+            if ls "$d"/*chd_shim* >/dev/null 2>&1; then builddir=$d; break; fi
+          done
           mkdir -p out
           name="libchdman_rs-${{ matrix.target }}.lib"
           inputs=()
@@ -407,7 +427,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          builddir=$(ls -d target/armv7-unknown-linux-gnueabihf/release/build/libchdman-rs-*/out | head -1)
+          # Cargo 1.100 moved build-script output from build/<pkg>-<hash>/out to build/<pkg>/<hash>/out;
+          # take whichever holds the shim archive (a host-side build dir may exist too, empty).
+          builddir=""
+          for d in target/armv7-unknown-linux-gnueabihf/release/build/libchdman-rs-*/out target/armv7-unknown-linux-gnueabihf/release/build/libchdman-rs/*/out; do
+            if ls "$d"/*chd_shim* >/dev/null 2>&1; then builddir=$d; break; fi
+          done
           if [ -z "${builddir:-}" ]; then
             echo "ERROR: build output dir not found"
             find target/armv7-unknown-linux-gnueabihf/release/build -maxdepth 3 -type d || true
@@ -473,7 +498,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          builddir=$(ls -d target/release/build/libchdman-rs-*/out | head -1)
+          # Cargo 1.100 moved build-script output from build/<pkg>-<hash>/out to build/<pkg>/<hash>/out;
+          # take whichever holds the shim archive (a host-side build dir may exist too, empty).
+          builddir=""
+          for d in target/release/build/libchdman-rs-*/out target/release/build/libchdman-rs/*/out; do
+            if ls "$d"/*chd_shim* >/dev/null 2>&1; then builddir=$d; break; fi
+          done
           mkdir -p out
           name="libchdman_rs-x86_64-unknown-linux-gnu-glibc2.31.a"
           { echo "create out/$name"; for f in "$builddir"/lib*.a; do echo "addlib $f"; done; echo save; echo end; } | ar -M
@@ -520,7 +550,12 @@ jobs:
             curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal >/dev/null
             . "$HOME/.cargo/env"
             CARGO_TARGET_DIR=/src/target-alpine cargo build --release
-            builddir=$(ls -d target-alpine/release/build/libchdman-rs-*/out | head -1)
+            # Cargo 1.100 moved build-script output from build/<pkg>-<hash>/out to build/<pkg>/<hash>/out;
+            # take whichever holds the shim archive (a host-side build dir may exist too, empty).
+            builddir=""
+            for d in target-alpine/release/build/libchdman-rs-*/out target-alpine/release/build/libchdman-rs/*/out; do
+              if ls "$d"/*chd_shim* >/dev/null 2>&1; then builddir=$d; break; fi
+            done
             mkdir -p out
             { echo "create out/$NAME"; for f in "$builddir"/lib*.a /usr/lib/libstdc++.a; do echo "addlib $f"; done; echo save; echo end; } | ar -M
             ranlib "out/$NAME"
@@ -592,7 +627,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          builddir=$(ls -d target/riscv64gc-unknown-linux-gnu/release/build/libchdman-rs-*/out | head -1)
+          # Cargo 1.100 moved build-script output from build/<pkg>-<hash>/out to build/<pkg>/<hash>/out;
+          # take whichever holds the shim archive (a host-side build dir may exist too, empty).
+          builddir=""
+          for d in target/riscv64gc-unknown-linux-gnu/release/build/libchdman-rs-*/out target/riscv64gc-unknown-linux-gnu/release/build/libchdman-rs/*/out; do
+            if ls "$d"/*chd_shim* >/dev/null 2>&1; then builddir=$d; break; fi
+          done
           if [ -z "${builddir:-}" ]; then
             echo "ERROR: build output dir not found"
             find target/riscv64gc-unknown-linux-gnu/release/build -maxdepth 3 -type d || true
