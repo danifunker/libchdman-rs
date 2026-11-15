@@ -1,0 +1,2 @@
+# Rust 1.73 (the macOS 10.7 toolchain) must build this crate: no lints that suggest newer APIs.
+msrv = "1.73"
